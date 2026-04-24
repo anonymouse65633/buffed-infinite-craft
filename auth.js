@@ -100,6 +100,9 @@ async function authLogin() {
 
     setAuthStatus('✅ Logged in! Loading your game…', 'success');
 
+    // Prompt browser to save password (Chrome/Edge Credential Management API)
+    _offerPasswordSave(username, password);
+
     // Load cloud save if it exists
     await cloudLoadGame(username);
 
@@ -159,8 +162,11 @@ async function authSignup() {
 
     setAuthStatus('✅ Account created! Starting fresh game…', 'success');
 
+    // Prompt browser to save password
+    _offerPasswordSave(username, password);
+
     // Clear any existing local save for clean start
-    localStorage.removeItem('ic_save_v4');
+    localStorage.removeItem('infinite_craft_save');
 
     hideAuthOverlay();
     initGame();
@@ -183,6 +189,16 @@ function authSubmit() {
 // ── Handle Enter key in auth fields ──────────────────────────────────
 function authKeydown(e) {
   if (e.key === 'Enter') authSubmit();
+}
+
+// ── Toggle password visibility ────────────────────────────────────────
+function toggleAuthPw(inputId, btn) {
+  const inp = document.getElementById(inputId);
+  if (!inp) return;
+  const show = inp.type === 'password';
+  inp.type = show ? 'text' : 'password';
+  btn.textContent = show ? '🙈' : '👁';
+  btn.style.opacity = show ? '1' : '0.5';
 }
 
 // ── Log Out ───────────────────────────────────────────────────────────
@@ -308,6 +324,21 @@ window.addEventListener('beforeunload', (e) => {
     }
   }
 });
+
+// ── Prompt browser to save credentials (Chrome/Edge/Firefox) ─────────
+function _offerPasswordSave(username, password) {
+  if (!window.PasswordCredential) return; // not supported
+  try {
+    const cred = new PasswordCredential({
+      id: username,
+      password: password,
+      name: username
+    });
+    navigator.credentials.store(cred);
+  } catch(e) {
+    // Silently ignore — not all browsers support this
+  }
+}
 
 // ═══════════════════════════════════════════════════════════════════════
 //  INIT  —  Check if already logged in and start accordingly
