@@ -1047,18 +1047,27 @@ ${profileHtml}
 
     return `
 <div class="admin-card">
-  <div class="admin-card-title">📢 Send Global Broadcast</div>
+  <div class="admin-card-title">📢 Send Broadcast</div>
   <div class="admin-alert info" style="margin-bottom:10px">
-    Broadcasts appear as toast notifications the next time each player loads the game.
+    Broadcasts appear instantly as toast notifications to targeted players.
   </div>
-  <textarea class="admin-input" id="broadcast-msg" rows="3" placeholder="Message to send to all players…" style="resize:vertical;margin-bottom:8px"></textarea>
+  <div style="display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap">
+    <button id="bc-aud-all"    class="admin-btn"       style="flex:1;min-width:100px" onclick="ADMIN._bcSetAudience('all')">🌍 Everyone</button>
+    <button id="bc-aud-single" class="admin-btn ghost" style="flex:1;min-width:100px" onclick="ADMIN._bcSetAudience('single')">👤 1 Player</button>
+    <button id="bc-aud-multi"  class="admin-btn ghost" style="flex:1;min-width:100px" onclick="ADMIN._bcSetAudience('multi')">👥 Multiple</button>
+  </div>
+  <div id="bc-target-row" style="display:none;margin-bottom:8px">
+    <input class="admin-input" id="bc-targets" placeholder="Username(s) — separate multiple with commas" style="width:100%">
+    <div style="font-size:11px;opacity:0.4;margin-top:3px" id="bc-target-hint">e.g. player1, player2</div>
+  </div>
+  <textarea class="admin-input" id="broadcast-msg" rows="3" placeholder="Message…" style="resize:vertical;margin-bottom:8px"></textarea>
   <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
     <select class="admin-select" id="broadcast-type">
       <option value="info">ℹ️ Info</option>
       <option value="announcement">📣 Announcement</option>
       <option value="warning">⚠️ Warning</option>
     </select>
-    <button class="admin-btn" onclick="ADMIN._sendBroadcast()">📢 Send to All Players</button>
+    <button class="admin-btn" onclick="ADMIN._sendBroadcast()" id="bc-send-btn">📢 Send to All Players</button>
   </div>
 </div>
 <div class="admin-card">
@@ -1068,12 +1077,48 @@ ${profileHtml}
     `;
   }
 
+  let _bcAudience = 'all';
+  function _bcSetAudience(mode) {
+    _bcAudience = mode;
+    ['all','single','multi'].forEach(m => {
+      const btn = document.getElementById('bc-aud-'+m);
+      if (btn) btn.className = 'admin-btn ' + (m === mode ? '' : 'ghost');
+    });
+    const row     = document.getElementById('bc-target-row');
+    const hint    = document.getElementById('bc-target-hint');
+    const sendBtn = document.getElementById('bc-send-btn');
+    if (row)     row.style.display = mode === 'all' ? 'none' : 'block';
+    if (hint)    hint.textContent  = mode === 'single' ? 'Enter exactly one username' : 'Separate usernames with commas';
+    if (sendBtn) sendBtn.textContent = mode === 'all' ? '📢 Send to All Players' : mode === 'single' ? '📨 Send to Player' : '📨 Send to Players';
+  }
+
   function _sendBroadcast() {
     const msg  = (document.getElementById('broadcast-msg')?.value||'').trim();
     const type = document.getElementById('broadcast-type')?.value || 'info';
     if (!msg) { showTokenToast('⚠️ Enter a message'); return; }
-    if (!confirm(`Send broadcast to ALL players?\n"${msg}"`)) return;
-    sendBroadcast(msg, type);
+    if (_bcAudience === 'all') {
+      if (!confirm(`Send broadcast to ALL players?\n"${msg}"`)) return;
+      sendBroadcast(msg, type);
+      return;
+    }
+    const raw     = (document.getElementById('bc-targets')?.value||'').trim();
+    if (!raw) { showTokenToast('⚠️ Enter at least one username'); return; }
+    const targets = raw.split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
+    if (!targets.length) { showTokenToast('⚠️ No valid usernames'); return; }
+    if (!confirm(`Send to ${targets.length === 1 ? targets[0] : targets.length+' players'}?\n"${msg}"`)) return;
+    _sendTargetedBroadcast(msg, type, targets);
+  }
+
+  async function _sendTargetedBroadcast(message, type, targets) {
+    const db = _db(); if (!db) return;
+    await db.collection('broadcasts').add({
+      message: message.trim(), type, targets,
+      sentBy: AUTH_USER,
+      sentAt: firebase.firestore.FieldValue.serverTimestamp()
+    });
+    await _log('TARGETED_BROADCAST', `To [${targets.join(', ')}]: ${message.trim()}`);
+    showTokenToast(`📨 Broadcast sent to ${targets.length} player(s)!`);
+    _renderTab();
   }
 
   // ─────────────────────────────────────────────────────────────────────
