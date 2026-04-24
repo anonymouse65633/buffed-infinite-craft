@@ -25,7 +25,7 @@
 // ═══════════════════════════════════════════════════════════════════════
 
 // ── !! CONFIGURE YOUR ADMIN USERNAME(S) HERE !! ─────────────────────────
-const ADMIN_USERNAMES = ['yourusername'];   // ← replace with YOUR username
+const ADMIN_USERNAMES = ['joshua_johnson'];   // ← replace with YOUR username
 // ─────────────────────────────────────────────────────────────────────────
 
 const ADMIN = (() => {
