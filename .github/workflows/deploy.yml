@@ -52,25 +52,30 @@ jobs:
 
       - name: Obfuscate JS files
         run: |
-          # config.js is NOT obfuscated — obfuscator renames FIREBASE_CONFIG
-          # It's generated fresh each build so keys are never in the repo
+          # NOTE: self-defending and control-flow-flattening are intentionally OFF.
+          # Both wrap files in IIFEs which breaks cross-file globals (FIREBASE_CONFIG,
+          # ADMIN, showTokenToast, etc). The remaining options still produce
+          # very strong obfuscation via RC4 string encoding + hex identifiers.
+          #
+          # config.js is excluded — it's generated fresh each build with real keys,
+          # and obfuscating it breaks FIREBASE_CONFIG references in firebase.js.
+
           for f in firebase.js llm.js main.js state.js game.js constants.js leaderboard.js auth.js Admin.js Anticheat.js; do
             if [ -f "$f" ]; then
               javascript-obfuscator "$f" \
                 --output "$f" \
                 --compact true \
-                --self-defending true \
-                --control-flow-flattening true \
-                --control-flow-flattening-threshold 0.4 \
+                --self-defending false \
+                --control-flow-flattening false \
                 --dead-code-injection true \
-                --dead-code-injection-threshold 0.2 \
+                --dead-code-injection-threshold 0.3 \
                 --identifier-names-generator hexadecimal \
                 --rename-globals false \
                 --transform-object-keys false \
                 --string-array true \
                 --string-array-encoding rc4 \
-                --string-array-threshold 0.75 \
-                --unicode-escape-sequence false
+                --string-array-threshold 0.8 \
+                --unicode-escape-sequence true
               echo "✅ Obfuscated $f"
             fi
           done
