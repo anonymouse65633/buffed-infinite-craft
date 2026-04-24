@@ -1,4 +1,3 @@
-
 /* ═══════════════════════════════════════════════════════════════
    THEME
 ═══════════════════════════════════════════════════════════════ */
@@ -1444,3 +1443,28 @@ body {
 .auth-logout-btn:hover {
   background: rgba(239,68,68,0.2);
 }
+
+/* ── Auth password show/hide wrapper ── */
+.auth-pw-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+.auth-pw-wrap input {
+  flex: 1;
+  padding-right: 42px !important;
+}
+.auth-eye-btn {
+  position: absolute;
+  right: 10px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 1rem;
+  opacity: 0.5;
+  padding: 4px;
+  line-height: 1;
+  transition: opacity 0.2s;
+  color: inherit;
+}
+.auth-eye-btn:hover { opacity: 1; }
