@@ -30,12 +30,12 @@
 //  Find yours: Firebase Console → Authentication → Users → copy User UID
 //  Replace the placeholder below with your actual UID.
 //
-const ADMIN_UIDS      = ['PASTE_YOUR_FIREBASE_UID_HERE'];
+const ADMIN_UIDS      = ['P4XJhH5AwBZk9JbqwDi3H44XBDk2'];
 //
 //  SECONDARY LOCK — username (fallback for username/password login)
 //  Change this to your in-game username.
 //
-const ADMIN_USERNAMES = ['yourusername'];
+const ADMIN_USERNAMES = ['joshua_johnson'];
 // ─────────────────────────────────────────────────────────────────────────
 
 const ADMIN = (() => {
