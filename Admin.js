@@ -1725,7 +1725,17 @@ ${profileHtml}
     _saveField, _quickGiveTokens, _confirmClearInventory, _confirmWipeSave,
     _quickGiveItem, _openBanPrompt, _setBadge,
     _dismissViolation, _unban, _issueBan,
-    _sendBroadcast, _bcSetAudience,
+    _sendBroadcast, _bcSetAudience: function(mode){
+      let _bcAudience=mode;
+      ['all','single','multi'].forEach(m=>{const b=document.getElementById('bc-aud-'+m);if(b)b.className='admin-btn '+(m===mode?'':'ghost');});
+      const row=document.getElementById('bc-target-row');
+      const hint=document.getElementById('bc-target-hint');
+      const btn=document.getElementById('bc-send-btn');
+      if(row)row.style.display=mode==='all'?'none':'block';
+      if(hint)hint.textContent=mode==='single'?'Enter exactly one username':'Separate usernames with commas';
+      if(btn)btn.textContent=mode==='all'?'📢 Send to All Players':mode==='single'?'📨 Send to Player':'📨 Send to Players';
+      window._bcAudience=mode;
+    },
     _removeLB, _setBadgePrompt,
     _deleteCombo, _addCombo, _comboSearch,
     _revokeFirst, _deleteFeed,
