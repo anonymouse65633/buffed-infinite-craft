@@ -24,16 +24,31 @@ jobs:
       - name: Install obfuscator
         run: npm install -g javascript-obfuscator
 
-      - name: Inject API keys from secrets
+      - name: Generate config.js from secrets
         run: |
-          sed -i "s|__GROQ_API_KEY__|${{ secrets.GROQ_API_KEY }}|g"               config.js
-          sed -i "s|__GEMINI_API_KEY__|${{ secrets.GEMINI_API_KEY }}|g"           config.js
-          sed -i "s|__OPENROUTER_API_KEY__|${{ secrets.OPENROUTER_API_KEY }}|g"   config.js
-          sed -i "s|__COHERE_API_KEY__|${{ secrets.COHERE_API_KEY }}|g"           config.js
-          sed -i "s|__HUGGINGFACE_API_KEY__|${{ secrets.HUGGINGFACE_API_KEY }}|g" config.js
-          sed -i "s|__FIREBASE_API_KEY__|${{ secrets.FIREBASE_API_KEY }}|g"       config.js
+          cat > config.js << 'ENDOFCONFIG'
+          const GROQ_API_KEY        = "GROQ_PLACEHOLDER";
+          const GEMINI_API_KEY      = "GEMINI_PLACEHOLDER";
+          const OPENROUTER_API_KEY  = "OPENROUTER_PLACEHOLDER";
+          const COHERE_API_KEY      = "COHERE_PLACEHOLDER";
+          const HUGGINGFACE_API_KEY = "HUGGINGFACE_PLACEHOLDER";
+          const FIREBASE_CONFIG = {
+            apiKey:            "FIREBASE_PLACEHOLDER",
+            authDomain:        "infinite-craft-remake-56705.firebaseapp.com",
+            projectId:         "infinite-craft-remake-56705",
+            storageBucket:     "infinite-craft-remake-56705.firebasestorage.app",
+            messagingSenderId: "347877015349",
+            appId:             "1:347877015349:web:3d79ea8db71c5fa57cd67c"
+          };
+          ENDOFCONFIG
+          sed -i "s|GROQ_PLACEHOLDER|${{ secrets.GROQ_API_KEY }}|g"             config.js
+          sed -i "s|GEMINI_PLACEHOLDER|${{ secrets.GEMINI_API_KEY }}|g"         config.js
+          sed -i "s|OPENROUTER_PLACEHOLDER|${{ secrets.OPENROUTER_API_KEY }}|g" config.js
+          sed -i "s|COHERE_PLACEHOLDER|${{ secrets.COHERE_API_KEY }}|g"         config.js
+          sed -i "s|HUGGINGFACE_PLACEHOLDER|${{ secrets.HUGGINGFACE_API_KEY }}|g" config.js
+          sed -i "s|FIREBASE_PLACEHOLDER|${{ secrets.FIREBASE_API_KEY }}|g"     config.js
 
-      - name: Obfuscate JS files
+      - name: Obfuscate all JS files
         run: |
           for f in config.js firebase.js llm.js main.js state.js game.js constants.js leaderboard.js auth.js Admin.js Anticheat.js; do
             if [ -f "$f" ]; then
