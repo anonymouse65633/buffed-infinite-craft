@@ -247,6 +247,15 @@ async function _onAuthSuccess(firebaseUser, username, isNew) {
   hideAuthOverlay();
   initGame();
   updateAuthUI();
+
+  // Auto-enrol in leaderboard — no manual join needed
+  lbSignedUp = true;
+  localStorage.setItem('ic_lb_signed_up', '1');
+  setTimeout(function() {
+    if (typeof pushLeaderboardStats === 'function') pushLeaderboardStats();
+    if (typeof updateRankHUD === 'function') updateRankHUD();
+  }, 2500);
+
   showTokenToast(isNew ? '🎉 Welcome to Infinite Craft, '+PLAYER_NAME+'!'
                        : '👋 Welcome back, '+PLAYER_NAME+'!');
 }
