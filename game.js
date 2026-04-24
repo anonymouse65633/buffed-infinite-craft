@@ -2225,7 +2225,9 @@ function buildSaveObject() {
 
 function saveGame() {
   try {
-    const data = buildSaveObject();
+    let data = buildSaveObject();
+    // ── Anti-cheat: stamp checksum so we can detect localStorage edits ──
+    if (typeof AC !== 'undefined') data = AC.stampSave(data);
     localStorage.setItem(SAVE_KEY, JSON.stringify(data));
     // Also schedule a cloud save if user is logged in
     if (typeof scheduleCloudSave === 'function') scheduleCloudSave();
@@ -2237,6 +2239,19 @@ function loadGame() {
     const raw = localStorage.getItem(SAVE_KEY);
     if (!raw) return false;
     const d = JSON.parse(raw);
+
+    // ── Anti-cheat: validate save before applying to game state ───────
+    if (typeof AC !== 'undefined') {
+      const check = AC.validateSave(d);
+      if (!check.ok) {
+        console.warn('[AC] loadGame validation failed:', check.reason);
+        // Clamp values to safe bounds rather than refusing to load
+        // (prevents save corruption from locking players out)
+        AC.clampSave(d);
+        // Flag session — leaderboard push will be blocked
+        window._AC_SUSPICIOUS = true;
+      }
+    }
 
     // economy
     if (d.tokens           != null) tokens           = d.tokens;
@@ -2321,7 +2336,23 @@ function importSave() {
   inp.onchange = async () => {
     try {
       const text = await inp.files[0].text();
-      localStorage.setItem(SAVE_KEY, text);
+      let data;
+      try { data = JSON.parse(text); } catch(e) { showErr('Import failed: invalid JSON'); return; }
+
+      // ── Anti-cheat: validate + clamp imported save ──────────────────
+      if (typeof AC !== 'undefined') {
+        const check = AC.validateSave(data);
+        if (!check.ok) {
+          // Clamp rather than refuse, so honest players with old saves
+          // aren't blocked — but silently fix any inflated numbers.
+          console.warn('[AC] Import validation failed (' + check.reason + ') — clamping values');
+          data = AC.clampSave(data);
+        }
+        // Strip any existing checksum — it will be re-stamped on next saveGame()
+        delete data._cs;
+      }
+
+      localStorage.setItem(SAVE_KEY, JSON.stringify(data));
       showTokenToast('📂 Save imported — reloading…');
       setTimeout(() => location.reload(), 800);
     } catch(e) { showErr('Import failed: ' + e.message); }
