@@ -24,8 +24,18 @@
 //    game_config/global    — global toggles
 // ═══════════════════════════════════════════════════════════════════════
 
-// ── !! CONFIGURE YOUR ADMIN USERNAME(S) HERE !! ─────────────────────────
-const ADMIN_USERNAMES = ['yourusername'];   // ← replace with YOUR username
+// ── !! CONFIGURE YOUR ADMIN ACCESS HERE !! ──────────────────────────────
+//
+//  PRIMARY LOCK — Firebase UID (most secure, can't be changed or spoofed)
+//  Find yours: Firebase Console → Authentication → Users → copy User UID
+//  Replace the placeholder below with your actual UID.
+//
+const ADMIN_UIDS      = ['PASTE_YOUR_FIREBASE_UID_HERE'];
+//
+//  SECONDARY LOCK — username (fallback for username/password login)
+//  Change this to your in-game username.
+//
+const ADMIN_USERNAMES = ['yourusername'];
 // ─────────────────────────────────────────────────────────────────────────
 
 const ADMIN = (() => {
@@ -41,7 +51,13 @@ const ADMIN = (() => {
   let _editTarget = null;
 
   // ─── Permission helpers ──────────────────────────────────────────────
-  function isAdmin()  { return AUTH_USER && ADMIN_USERNAMES.includes(AUTH_USER); }
+  function isAdmin()  {
+    // UID check (primary — most secure, Google sign-in)
+    if (AUTH_UID  && ADMIN_UIDS[0] !== 'PASTE_YOUR_FIREBASE_UID_HERE' && ADMIN_UIDS.includes(AUTH_UID))   return true;
+    // Username check (fallback for username/password login)
+    if (AUTH_USER && ADMIN_USERNAMES[0] !== 'yourusername'             && ADMIN_USERNAMES.includes(AUTH_USER)) return true;
+    return false;
+  }
   function isOp()     { return !!window._ADMIN_OP_PERMS; }
   function hasPerm(p) { return isAdmin() || (window._ADMIN_OP_PERMS && window._ADMIN_OP_PERMS[p]); }
   function _db()      { return window._db || null; }
