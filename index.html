@@ -1,0 +1,372 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Infinite Craft</title>
+<link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/styles.css">
+
+<!-- Firebase Compat SDK -->
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
+</head>
+<body>
+
+
+<!-- Canvas -->
+<div id="canvas-area">
+  <div id="canvas">
+    <div id="world"></div>
+    <div id="hint">
+      <div class="hi">⚗️</div>
+      <div>Drag elements from the sidebar to the canvas<br>Drop one on another to combine them</div>
+    </div>
+  </div>
+</div>
+
+<!-- Logo + Menu Button -->
+<div id="logo-wrap">
+  <button id="main-menu-btn" onclick="toggleMainMenu()">☰ Menu</button>
+  <div id="logo">⚗️ Infinite Craft</div>
+</div>
+
+<!-- Rank HUD (above level ring) -->
+<div id="rank-hud">
+  <div class="rank-badge" id="rank-badge-el">🏆 #—</div>
+</div>
+
+<!-- Level HUD (circular ring, top-left) -->
+<div id="level-hud">
+  <div id="level-ring-wrap">
+    <svg id="level-ring-svg" viewBox="0 0 90 90" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <linearGradient id="ringGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+          <stop id="ring-grad-stop1" offset="0%" />
+          <stop id="ring-grad-stop2" offset="100%" />
+        </linearGradient>
+      </defs>
+      <!-- Track: 270° arc, gap at bottom. Circle r=37, cx=cy=45, circumference≈232.5 -->
+      <!-- Rotated so gap is at bottom: stroke starts at 3-o'clock, need it at ~7-o'clock = rotate 135° -->
+      <circle class="ring-track" cx="45" cy="45" r="37"
+        stroke-dasharray="174.4 58.1"
+        transform="rotate(135 45 45)"
+        stroke-dashoffset="0"/>
+      <circle class="ring-fill" id="ring-fill-el" cx="45" cy="45" r="37"
+        stroke="url(#ringGrad)"
+        stroke-dasharray="0 232.5"
+        transform="rotate(135 45 45)"
+        stroke-dashoffset="0"/>
+    </svg>
+    <div id="level-ring-center">
+      <div id="hud-pic">⚗️</div>
+      <div id="hud-level-num">1</div>
+      <div id="hud-level-lbl">LEVEL</div>
+    </div>
+  </div>
+  <div id="hud-prestige">⭐ P1</div>
+  <div id="hud-xp-label">0 / 150 XP</div>
+</div>
+<button id="hud-prestige-btn" onclick="openPrestigeModal()">⭐ PRESTIGE!</button>
+<div id="booster-hud"></div>
+
+<!-- Prestige Modal -->
+<div id="prestige-modal">
+  <div id="prestige-card">
+    <h2 id="pm-title">⭐ Prestige!</h2>
+    <div class="prestige-desc" id="pm-desc">Reset your level and unlock powerful permanent boosts that carry over every run!</div>
+    <div class="prestige-reward" id="pm-reward"></div>
+    <div class="prestige-reset-warn" id="pm-warn">⚠️ Resets: Level → 1, XP → 0, and basic shop upgrades (refunded 50%)</div>
+    <div class="modal-btns">
+      <button onclick="closePrestigeModal()">Cancel</button>
+      <button class="prestige-confirm" onclick="doPrestige()">⭐ Prestige Now!</button>
+    </div>
+  </div>
+</div>
+
+<!-- Side controls -->
+<div id="side-ctrl">
+  <button class="ctrl-btn" id="btn-dark"  title="Toggle dark mode" onclick="toggleDarkMode()">🌙</button>
+  <button class="ctrl-btn" id="btn-clear" title="Clear canvas">🗑️</button>
+  <button class="ctrl-btn" id="btn-reset" title="Reset game">↺</button>
+</div>
+
+<!-- Pinned quests overlay -->
+<div id="pinned-overlay"></div>
+
+<!-- Auto crafter status -->
+<div id="auto-status">⚙️ Auto Crafter active</div>
+
+<!-- Sidebar -->
+<div id="sidebar">
+  <!-- Scrollable content -->
+  <div id="sb-content">
+
+    <!-- ITEMS VIEW -->
+    <div id="view-items">
+      <div class="sb-section-title">Items <span class="sb-count" id="el-count">4</span></div>
+      <div id="items-inner"></div>
+      <div class="instruction">← Drag elements to craft</div>
+    </div>
+
+    <!-- DISCOVERIES VIEW -->
+    <div id="view-disc" style="display:none">
+      <div class="sb-section-title">First Discoveries <span class="sb-count" id="disc-count">0</span></div>
+      <div id="disc-inner"></div>
+    </div>
+
+    <!-- SHOP VIEW (moved to Menu panel) -->
+    <!-- QUESTS VIEW (moved to Menu panel) -->
+    <!-- HOME VIEW (moved to Menu panel) -->
+
+  </div><!-- /sb-content -->
+
+  <!-- Bottom Nav -->
+  <div id="sb-nav">
+    <!-- Action row: Discoveries | Sort▼ | Clear -->
+    <div id="sb-action-row">
+      <button id="disc-wide-btn" onclick="toggleDisc()">
+        ✨ Discoveries <span id="disc-btn-count" class="disc-btn-badge">0</span>
+      </button>
+      <div id="sort-btn-wrap">
+        <button id="sort-btn" onclick="toggleSortDrop(event)">
+          <span id="sort-btn-label">🕐 Time</span> ▾
+        </button>
+        <div id="sort-dropdown">
+          <div class="sdrop-item" id="sdrop-time"   onclick="setSort('time')">  🕐 Sort by time</div>
+          <div class="sdrop-item" id="sdrop-name"   onclick="setSort('name')">  🔤 Sort by name</div>
+          <div class="sdrop-item" id="sdrop-emoji"  onclick="setSort('emoji')"> 😀 Sort by emoji  <span class="sdrop-lock" id="sdrop-lock-emoji">🔒</span></div>
+          <div class="sdrop-item" id="sdrop-length" onclick="setSort('length')">📏 Sort by length <span class="sdrop-lock" id="sdrop-lock-length">🔒</span></div>
+          <div class="sdrop-item" id="sdrop-random" onclick="setSort('random')">🎲 Sort randomly  <span class="sdrop-lock" id="sdrop-lock-random">🔒</span></div>
+        </div>
+      </div>
+      <button id="sb-clear-btn" title="Clear canvas" onclick="clearCanvas()">🗑️</button>
+    </div>
+    <!-- Search -->
+    <div id="search-wrap">
+      <span class="search-icon-l">🔍</span>
+      <input id="search-input" type="text" placeholder="Search items…" autocomplete="off" spellcheck="false">
+    </div>
+  </div>
+</div>
+
+<!-- Menu button (bottom-left) -->
+<div id="menu-btn-wrap">
+  <button id="menu-btn" onclick="toggleMenu()">🛒 Shop</button>
+  <button id="trophy-btn" title="Milestones" onclick="toggleMilestonesPanel()">🏆</button>
+</div>
+
+<!-- Menu panel (Shop / Quests / Home) -->
+<div id="menu-panel">
+  <div id="menu-tabs">
+    <button class="menu-tab-btn active" id="mtab-shop"       onclick="switchMenu('shop')">      🛒 Shop</button>
+    <button class="menu-tab-btn"        id="mtab-quests"     onclick="switchMenu('quests')">    📜 Quests</button>
+    <button class="menu-tab-btn"        id="mtab-unlocks"    onclick="switchMenu('unlocks')">   🔓 Unlocks</button>
+    <button class="menu-tab-btn"        id="mtab-prestige"   onclick="switchMenu('prestige')">  ⭐ Prestige</button>
+    <button id="fullscreen-btn" onclick="toggleFullscreen()" title="Expand panel">⛶</button>
+  </div>
+  <div id="menu-content">
+    <!-- Shop view (moved here from sidebar) -->
+    <div id="menu-view-shop">
+      <div id="xp-bar-wrap">
+        <div class="xp-header">
+          <div class="xp-level" id="level-label">Level 1</div>
+          <div class="xp-tokens" id="token-label">🪙 0 Tokens</div>
+        </div>
+        <div class="xp-track-row">
+          <div class="xp-track"><div class="xp-fill" id="xp-fill" style="width:0%"></div></div>
+          <div class="xp-level-badge" id="xp-level-badge">Lv 1</div>
+        </div>
+        <div class="xp-sub" id="xp-sub">0 / 150 XP</div>
+      </div>
+      <div id="shop-inner"></div>
+
+    </div>
+    <!-- Quests view -->
+    <div id="menu-view-quests" style="display:none">
+      <div class="sb-section-title">Quest Board</div>
+      <div id="quest-inner"></div>
+      <div style="padding:10px 12px 4px;font-size:14px;font-weight:700;border-top:1px solid var(--border);margin-top:8px">⛓️ Discovery Chains</div>
+      <div style="font-size:11px;opacity:0.4;padding:0 12px 5px">Follow crafting paths. Each discovery unlocks the next mystery element.</div>
+      <div id="chain-inner" class="chain-section"></div>
+    </div>
+    <!-- Prestige view (was Home) -->
+    <div id="menu-view-prestige" style="display:none">
+      <div style="padding:12px 12px 6px;font-size:17px;font-weight:500">⭐ Prestige</div>
+      <div class="home-section" style="padding:0 12px">
+        <div class="home-section-title">🎨 Text Colour Themes</div>
+        <div id="text-swatches"></div>
+      </div>
+      <div class="home-section" style="padding:0 12px">
+        <div class="home-section-title">📊 Level Bar Colours</div>
+        <div class="bar-theme-list" id="bar-theme-list"></div>
+      </div>
+      <div class="home-section" style="padding:0 12px">
+        <div class="home-section-title">⭐ Logo Tiers</div>
+        <div id="home-logo-gallery"></div>
+      </div>
+    </div>
+    <!-- Unlocks view (main tab) -->
+    <div id="menu-view-unlocks" style="display:none">
+      <div style="padding:12px 12px 6px;font-size:17px;font-weight:500">🔓 Achievements</div>
+      <div id="ach-web-wrap" style="height:480px"></div>
+      <div style="padding:12px 12px 6px;font-size:15px;font-weight:600;opacity:0.7;border-top:1px solid var(--border);margin-top:8px">⭐ Prestige Level Rewards</div>
+      <div class="prestige-sel-row" id="prestige-sel-row"></div>
+      <div id="unlocks-list"></div>
+      <div style="padding:8px 10px;border-top:1px solid var(--border);margin-top:8px">
+        <button onclick="toggleSecretUnlocksPanel()" id="su-toggle-btn" style="width:100%;display:flex;align-items:center;justify-content:space-between;background:rgba(168,85,247,0.08);border:1px solid rgba(168,85,247,0.25);border-radius:10px;padding:9px 13px;cursor:pointer;font-family:Roboto,sans-serif;color:var(--text);font-size:13px;font-weight:700;">
+          <span>🔐 Secret Unlocks <span id="su-count-badge" style="font-size:11px;opacity:0.6;font-weight:400"></span></span>
+          <span id="su-toggle-arrow" style="font-size:11px;opacity:0.5">▼ Show</span>
+        </button>
+        <div id="secret-unlocks-list" class="secret-unlock-grid" style="display:none"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Floating Milestones Panel (opened by trophy button) -->
+<div id="milestones-panel" style="display:none; position:fixed; left:14px; bottom:64px; z-index:24; width:340px; max-height:72vh; background:var(--sb-bg); border:1px solid var(--border); border-radius:14px; box-shadow:0 16px 48px rgba(0,0,0,0.22); flex-direction:column; overflow:hidden; animation:menuSlideUp 0.18s ease;">
+  <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px 8px;border-bottom:1px solid var(--border);flex-shrink:0">
+    <span style="font-size:17px;font-weight:600">🏆 Milestones</span>
+    <button onclick="toggleMilestonesPanel()" style="background:none;border:none;cursor:pointer;font-size:18px;color:var(--text);opacity:0.6;padding:0 4px">✕</button>
+  </div>
+  <div id="milestones-inner" style="overflow-y:auto;flex:1;padding:4px 0"></div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════
+     MAIN MENU PANEL (Account + Leaderboard)
+══════════════════════════════════════════════════════════ -->
+<div id="main-menu-panel">
+  <div id="main-menu-tabs">
+    <button class="main-menu-tab-btn active" id="mmtab-account"     onclick="switchMainMenu('account')">    👤 Account</button>
+    <button class="main-menu-tab-btn"        id="mmtab-leaderboard" onclick="switchMainMenu('leaderboard')">🏆 Leaderboard</button>
+  </div>
+  <div id="main-menu-content">
+
+    <!-- ACCOUNT TAB -->
+    <div id="mm-view-account">
+      <!-- Auth section: filled by renderAccountTab() -->
+      <div class="acct-section" id="acct-auth-section"></div>
+      <div class="acct-section" id="acct-profile-section">
+        <!-- filled by renderAccountTab() -->
+        <div style="text-align:center;padding:20px;opacity:0.4;font-size:13px">Loading…</div>
+      </div>
+      <div class="acct-section">
+        <div class="acct-section-title">🎖️ Your Badges</div>
+        <div class="featured-badge-section">
+          <div class="featured-badge-label">Featured Badge</div>
+          <div id="acct-featured-badge"></div>
+        </div>
+        <div id="acct-badges-grid" class="badge-grid"></div>
+      </div>
+      <div class="acct-section">
+        <div class="acct-section-title">⚙️ Settings</div>
+        <button class="acct-btn secondary" style="margin-bottom:6px" onclick="openUsernameModal()">✏️ Change Display Name</button>
+        <button class="acct-btn secondary" style="margin-bottom:6px" onclick="exportSave()">💾 Export Save</button>
+        <button class="acct-btn secondary" onclick="importSave()">📂 Import Save</button>
+      </div>
+    </div>
+
+    <!-- LEADERBOARD TAB -->
+    <div id="mm-view-leaderboard" style="display:none">
+      <div class="lb-cat-tabs" id="lb-cat-tabs">
+        <button class="lb-cat-btn active" onclick="switchLBCat('crafts')">⚗️ Crafts</button>
+        <button class="lb-cat-btn" onclick="switchLBCat('discoveries')">✨ Discoveries</button>
+        <button class="lb-cat-btn" onclick="switchLBCat('tokens')">🪙 Tokens</button>
+        <button class="lb-cat-btn" onclick="switchLBCat('timePlayed')">⏱️ Time</button>
+        <button class="lb-cat-btn" onclick="switchLBCat('prestige')">⭐ Prestige</button>
+        <button class="lb-cat-btn" onclick="switchLBCat('level')">📈 Level</button>
+      </div>
+      <div class="lb-header-row">
+        <span>#</span><span>Player</span><span>Badge</span><span>Score</span>
+      </div>
+      <div id="lb-rows-container" style="max-height:360px;overflow-y:auto;scrollbar-width:thin">
+        <div class="lb-loading">⏳ Loading leaderboard…</div>
+      </div>
+      <div class="lb-my-rank-row" id="lb-my-rank-row" style="display:none">
+        <span><span class="lb-live-dot"></span> LIVE</span>
+        <span id="lb-my-rank-text">Your rank: —</span>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<div id="ghost"></div>
+<div id="select-box"></div>
+
+<!-- Toasts -->
+<div id="discovery-toast">✨ First Discovery!</div>
+<div id="secret-toast">🔐 Secret Unlocked!</div>
+<div id="chain-toast">⛓️ Chain Step Complete!</div>
+<div id="token-toast"></div>
+<div id="err-toast"></div>
+
+<!-- Custom element modal — hidden until purchased -->
+<div id="custom-modal" style="display:none">
+  <div id="custom-card">
+    <h3>🧪 Add Custom Element</h3>
+    <input id="custom-emoji" type="text" placeholder="Emoji (e.g. 🦄)" maxlength="4">
+    <input id="custom-name"  type="text" placeholder="Name (e.g. Unicorn)">
+    <div class="modal-btns">
+      <button onclick="closeCustomModal()">Cancel</button>
+      <button class="primary" onclick="confirmCustomElement()">Add Element</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── Global player badge (top-left of canvas) ── -->
+<div id="global-badge" onclick="openUsernameModal()" title="Click to change your display name">
+  <div class="gb-dot" id="gb-dot"></div>
+  <span class="gb-name" id="gb-name">...</span>
+  <span class="gb-label">· global</span>
+</div>
+
+<!-- ── Username change modal (kept for display name changes in-game) ── -->
+<div id="username-modal">
+  <div id="username-card">
+    <h3>👤 Your Display Name</h3>
+    <p>This name shows when you make a <b>World First</b> discovery. Make it yours!</p>
+    <input id="username-input" type="text" placeholder="Enter a display name..." maxlength="24">
+    <div class="um-btns">
+      <button onclick="closeUsernameModal()">Cancel</button>
+      <button class="primary" onclick="saveUsername()">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── Auth Overlay (Login / Signup) ── -->
+<div id="auth-overlay">
+  <div id="auth-card">
+    <div id="auth-logo">⚗️ Infinite Craft</div>
+    <div id="auth-tabs">
+      <button id="auth-tab-login" class="active" onclick="switchAuthMode('login')">🔐 Log In</button>
+      <button id="auth-tab-signup" onclick="switchAuthMode('signup')">✨ Sign Up</button>
+    </div>
+    <div id="auth-fields">
+      <input id="auth-username" type="text" placeholder="Username" maxlength="24" autocomplete="username" onkeydown="authKeydown(event)">
+      <input id="auth-password" type="password" placeholder="Password" autocomplete="current-password" onkeydown="authKeydown(event)">
+      <div id="auth-confirm-row" style="display:none">
+        <input id="auth-confirm" type="password" placeholder="Confirm Password" onkeydown="authKeydown(event)">
+      </div>
+    </div>
+    <div id="auth-status" class="auth-status" style="display:none"></div>
+    <button id="auth-submit-btn" class="primary" onclick="authSubmit()">🔐 Log In</button>
+    <p id="auth-guest-note">Progress is saved to your account across all devices.</p>
+  </div>
+</div>
+
+
+
+<!-- ═══ SCRIPTS (load order matters) ═══════════════════════════════ -->
+<script src="js/config.js"></script>
+<script src="js/firebase.js"></script>
+<script src="js/constants.js"></script>
+<script src="js/state.js"></script>
+<script src="js/game.js"></script>
+<script src="js/llm.js"></script>
+<script src="js/leaderboard.js"></script>
+<script src="js/auth.js"></script>
+<script src="js/main.js"></script>
+</body>
+</html>
