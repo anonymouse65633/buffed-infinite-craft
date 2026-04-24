@@ -328,10 +328,11 @@
   <div id="username-card">
     <h3>👤 Your Display Name</h3>
     <p>This name shows when you make a <b>World First</b> discovery. Make it yours!</p>
+    <p id="username-cooldown" style="display:none;color:#f59e0b;font-size:12px;margin-top:-4px;"></p>
     <input id="username-input" type="text" placeholder="Enter a display name..." maxlength="24">
     <div class="um-btns">
       <button onclick="closeUsernameModal()">Cancel</button>
-      <button class="primary" onclick="saveUsername()">Save</button>
+      <button id="username-save-btn" class="primary" onclick="saveUsername()">Save</button>
     </div>
   </div>
 </div>
