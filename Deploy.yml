@@ -24,29 +24,23 @@ jobs:
       - name: Install obfuscator
         run: npm install -g javascript-obfuscator
 
-      - name: Generate config.js from secrets
+      - name: Inject API keys into config.js
+        env:
+          GROQ:        ${{ secrets.GROQ_API_KEY }}
+          GEMINI:      ${{ secrets.GEMINI_API_KEY }}
+          OPENROUTER:  ${{ secrets.OPENROUTER_API_KEY }}
+          COHERE:      ${{ secrets.COHERE_API_KEY }}
+          HUGGINGFACE: ${{ secrets.HUGGINGFACE_API_KEY }}
+          FIREBASE:    ${{ secrets.FIREBASE_API_KEY }}
         run: |
-          cat > config.js << 'ENDOFCONFIG'
-          const GROQ_API_KEY        = "GROQ_PLACEHOLDER";
-          const GEMINI_API_KEY      = "GEMINI_PLACEHOLDER";
-          const OPENROUTER_API_KEY  = "OPENROUTER_PLACEHOLDER";
-          const COHERE_API_KEY      = "COHERE_PLACEHOLDER";
-          const HUGGINGFACE_API_KEY = "HUGGINGFACE_PLACEHOLDER";
-          const FIREBASE_CONFIG = {
-            apiKey:            "FIREBASE_PLACEHOLDER",
-            authDomain:        "infinite-craft-remake-56705.firebaseapp.com",
-            projectId:         "infinite-craft-remake-56705",
-            storageBucket:     "infinite-craft-remake-56705.firebasestorage.app",
-            messagingSenderId: "347877015349",
-            appId:             "1:347877015349:web:3d79ea8db71c5fa57cd67c"
-          };
-          ENDOFCONFIG
-          sed -i "s|GROQ_PLACEHOLDER|${{ secrets.GROQ_API_KEY }}|g"             config.js
-          sed -i "s|GEMINI_PLACEHOLDER|${{ secrets.GEMINI_API_KEY }}|g"         config.js
-          sed -i "s|OPENROUTER_PLACEHOLDER|${{ secrets.OPENROUTER_API_KEY }}|g" config.js
-          sed -i "s|COHERE_PLACEHOLDER|${{ secrets.COHERE_API_KEY }}|g"         config.js
-          sed -i "s|HUGGINGFACE_PLACEHOLDER|${{ secrets.HUGGINGFACE_API_KEY }}|g" config.js
-          sed -i "s|FIREBASE_PLACEHOLDER|${{ secrets.FIREBASE_API_KEY }}|g"     config.js
+          sed -i "s|GROQ_PLACEHOLDER|${GROQ}|g"             config.js
+          sed -i "s|GEMINI_PLACEHOLDER|${GEMINI}|g"         config.js
+          sed -i "s|OPENROUTER_PLACEHOLDER|${OPENROUTER}|g" config.js
+          sed -i "s|COHERE_PLACEHOLDER|${COHERE}|g"         config.js
+          sed -i "s|HUGGINGFACE_PLACEHOLDER|${HUGGINGFACE}|g" config.js
+          sed -i "s|FIREBASE_PLACEHOLDER|${FIREBASE}|g"     config.js
+          echo "✅ Keys injected"
+          grep -c "PLACEHOLDER" config.js && echo "❌ Some placeholders not replaced!" || echo "✅ All placeholders replaced"
 
       - name: Obfuscate all JS files
         run: |
