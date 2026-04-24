@@ -34,7 +34,11 @@ function computeEarnedBadges() {
 }
 
 // ── Leaderboard State ─────────────────────────────────────────────────────
-var lbSignedUp     = !!localStorage.getItem('ic_lb_signed_up');
+// lbSignedUp: true if user has an account (auto-joined) or manually opted in
+function _isLbActive() {
+  return !!(( typeof AUTH_UID !== 'undefined' && AUTH_UID ) || localStorage.getItem('ic_lb_signed_up'));
+}
+var lbSignedUp = _isLbActive();
 var lbFeaturedBadge= localStorage.getItem('ic_lb_featured_badge') || null;
 var lbCurrentCat   = 'crafts';
 var lbUnsubscribe  = null;
@@ -70,6 +74,7 @@ setInterval(function() {
 }, 10000);
 
 function _getLbPlayerId() {
+  if (typeof AUTH_UID !== 'undefined' && AUTH_UID) return AUTH_UID;
   let id = localStorage.getItem('ic_lb_player_id');
   if (!id) { id = 'p_' + Date.now() + '_' + Math.random().toString(36).slice(2,8); localStorage.setItem('ic_lb_player_id', id); }
   return id;
@@ -195,7 +200,7 @@ function renderAccountTab() {
             <div style="font-size:0.75rem;opacity:0.5">Logged in · Progress saves automatically</div>
           </div>
         </div>
-        <button class="acct-btn secondary" style="font-size:12px;margin-bottom:4px" onclick="cloudSaveGame(AUTH_USER).then(()=>showTokenToast('☁️ Saved to cloud!'))">☁️ Save to Cloud</button>
+        <button class="acct-btn secondary" style="font-size:12px;margin-bottom:4px" onclick="cloudSaveGame(AUTH_UID).then(()=>showTokenToast('☁️ Saved to cloud!'))">☁️ Save to Cloud</button>
         <button class="auth-logout-btn" onclick="authLogout()">🚪 Log Out</button>
         <hr style="border:none;border-top:1px solid rgba(255,255,255,0.07);margin:14px 0">`;
     } else {
@@ -207,16 +212,19 @@ function renderAccountTab() {
     }
   }
 
-  if (!lbSignedUp) {
-    profileSection.innerHTML = `
-      <div class="acct-signup-card">
-        <h3>🎮 Join the Leaderboard</h3>
-        <p>Sign up to track your progress globally, earn badges, and compete with players around the world!</p>
-        <input class="acct-input" id="lb-signup-name-input" type="text" placeholder="Your display name…" maxlength="24" value="${PLAYER_NAME}">
-        <button class="acct-btn primary" onclick="signUpForLeaderboard()">🚀 Join Leaderboard</button>
-      </div>`;
-  } else {
-    const earned = computeEarnedBadges();
+  // Refresh lbSignedUp in case auth changed
+  lbSignedUp = _isLbActive();
+
+  if (typeof AUTH_USER !== 'undefined' && AUTH_USER) {
+    // Ensure they're auto-enrolled
+    if (!lbSignedUp) {
+      lbSignedUp = true;
+      localStorage.setItem('ic_lb_signed_up', '1');
+    }
+  }
+
+  {
+    const profileEarned = computeEarnedBadges();
     const rankTxt = lbMyRank !== null ? '#'+lbMyRank : '…';
     profileSection.innerHTML = `
       <div class="acct-section-title">👤 Profile</div>
@@ -224,7 +232,7 @@ function renderAccountTab() {
         <div class="acct-avatar">${activePic}</div>
         <div class="acct-info">
           <div class="acct-name">${PLAYER_NAME}</div>
-          <div class="acct-meta">Level ${level} · P${prestige} · ${earned.length} badges</div>
+          <div class="acct-meta">Level ${level} · P${prestige} · ${profileEarned.length} badges</div>
         </div>
         <div class="acct-rank-pill">${lbMyRank !== null ? '#'+lbMyRank : '…'}</div>
       </div>
@@ -282,15 +290,6 @@ function switchLBCat(cat) {
 }
 
 async function renderLeaderboard(cat) {
-  if (!lbSignedUp) {
-    document.getElementById('lb-rows-container').innerHTML = `
-      <div class="lb-signup-prompt">
-        <p>Sign up to see the live leaderboard and compete with players around the world!</p>
-        <button class="acct-btn primary" style="max-width:200px;margin:0 auto" onclick="switchMainMenu('account')">👤 Go to Account</button>
-      </div>`;
-    document.getElementById('lb-my-rank-row').style.display = 'none';
-    return;
-  }
   if (!_fbReady()) {
     document.getElementById('lb-rows-container').innerHTML = `<div class="lb-no-data">⚠️ Firebase not connected. Check console.</div>`;
     return;
@@ -335,19 +334,48 @@ function _renderLBRows(docs, cat, catInfo) {
   let myRank = null;
   let html = '';
 
+  // Build podium for top 3
+  if (docs.length >= 1) {
+    const top = docs.slice(0, Math.min(3, docs.length));
+    // podium order: 2nd, 1st, 3rd
+    const podiumOrder = top.length === 1 ? [top[0]]
+                      : top.length === 2 ? [top[1], top[0]]
+                      : [top[1], top[0], top[2]];
+    const podiumRanks = top.length === 1 ? [1]
+                      : top.length === 2 ? [2, 1]
+                      : [2, 1, 3];
+    html += '<div class="lb-podium">';
+    podiumOrder.forEach(function(doc, pi) {
+      const rank = podiumRanks[pi];
+      const isMe = doc.id === myId;
+      if (isMe && myRank === null) myRank = rank;
+      const score = doc[catInfo.field] ?? 0;
+      const featBadge = doc.featuredBadge ? (BADGE_DEFS.find(b=>b.id===doc.featuredBadge)||null) : null;
+      html += `<div class="podium-slot podium-${rank}${isMe?' lb-me':''}">
+        <div class="podium-name" title="${doc.name||'???' }">${doc.name||'???'}</div>
+        ${featBadge ? `<div class="podium-badge">${featBadge.icon}</div>` : ''}
+        <div class="podium-medal">${medals[rank-1]}</div>
+        <div class="podium-score">${catInfo.format(score)}</div>
+        <div class="podium-bar"></div>
+      </div>`;
+    });
+    html += '</div>';
+  }
+
+  // Remaining rows (rank 4+)
   docs.forEach(function(doc, i) {
     const rank = i + 1;
+    if (rank <= 3) {
+      if (doc.id === myId) myRank = rank;
+      return; // already in podium
+    }
     const isMe = doc.id === myId;
     if (isMe) myRank = rank;
-
     const score = doc[catInfo.field] ?? 0;
     const featBadge = doc.featuredBadge ? (BADGE_DEFS.find(b=>b.id===doc.featuredBadge)||null) : null;
     const badgeHtml = featBadge ? `<span title="${featBadge.desc}">${featBadge.icon}</span>` : '';
-    const rankMedal = rank <= 3 ? medals[rank-1] : rank;
-    const rankCls = rank===1?'r1':rank===2?'r2':rank===3?'r3':'';
-
-    html += `<div class="lb-row${isMe?' lb-me':''}${rank<=3?' lb-top'+rank:''}">
-      <span class="lb-rank ${rankCls}">${rankMedal}</span>
+    html += `<div class="lb-row${isMe?' lb-me':''}">
+      <span class="lb-rank">${rank}</span>
       <span class="lb-name">${doc.name||'???'}</span>
       <span class="lb-badge">${badgeHtml}</span>
       <span class="lb-score">${catInfo.format(score)}</span>
