@@ -192,6 +192,15 @@ const AC = (function () {
     _violations.push({ reason, at: Date.now() });
     console.warn('[AC] Integrity violation:', reason);
 
+    // ── Log to Firestore for admin panel visibility ──────────────────
+    try {
+      if (typeof ADMIN !== 'undefined' && ADMIN.logViolation && window._db) {
+        const uid      = window.AUTH_UID      || localStorage.getItem('ic_auth_uid')  || 'guest';
+        const username = window.AUTH_USER     || localStorage.getItem('ic_auth_user') || 'guest';
+        ADMIN.logViolation(uid, username, reason);
+      }
+    } catch (_) {}
+
     if (_suspicious) return; // already flagged — don't spam
     _suspicious = true;
 
