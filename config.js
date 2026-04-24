@@ -1,11 +1,11 @@
-const GROQ_API_KEY        = "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";
-const GEMINI_API_KEY      = "AIzaSyDSIlHvH4ReTCYqYPmom7t3wt1j_pVIVFA";
-const OPENROUTER_API_KEY  = "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";
-const COHERE_API_KEY      = "eqBEaVHdjkFEeVs611x3NPUiLCTZ06IO1mtSGQzs";
-const HUGGINGFACE_API_KEY = "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";
+const GROQ_API_KEY        = "GROQ_PLACEHOLDER";
+const GEMINI_API_KEY      = "GEMINI_PLACEHOLDER";
+const OPENROUTER_API_KEY  = "OPENROUTER_PLACEHOLDER";
+const COHERE_API_KEY      = "COHERE_PLACEHOLDER";
+const HUGGINGFACE_API_KEY = "HUGGINGFACE_PLACEHOLDER";
 
 const FIREBASE_CONFIG = {
-  apiKey:            "AIzaSyDU-rtxp20m2f6XdVPzs8MJ6UsiOpPvMWY",
+  apiKey:            "FIREBASE_PLACEHOLDER",
   authDomain:        "infinite-craft-remake-56705.firebaseapp.com",
   projectId:         "infinite-craft-remake-56705",
   storageBucket:     "infinite-craft-remake-56705.firebasestorage.app",
