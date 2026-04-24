@@ -231,6 +231,13 @@ function authGoogleCancel() {
 async function _onAuthSuccess(firebaseUser, username, isNew) {
   AUTH_UID  = firebaseUser.uid;
   AUTH_USER = username;
+
+  // ── Ban check — must happen before anything else ──────────────────
+  if (typeof ADMIN !== 'undefined' && ADMIN.checkLoginBan) {
+    const isBanned = await ADMIN.checkLoginBan(firebaseUser.uid);
+    if (isBanned) { setAuthLoading(false); return; }
+  }
+
   localStorage.setItem('ic_auth_user', username);
   localStorage.setItem('ic_auth_uid',  AUTH_UID);
   PLAYER_NAME = username;
@@ -247,6 +254,11 @@ async function _onAuthSuccess(firebaseUser, username, isNew) {
   hideAuthOverlay();
   initGame();
   updateAuthUI();
+
+  // ── Admin panel init ──────────────────────────────────────────────
+  if (typeof ADMIN !== 'undefined' && ADMIN.init) {
+    setTimeout(() => ADMIN.init(), 500);
+  }
 
   // Auto-enrol in leaderboard — no manual join needed
   lbSignedUp = true;
