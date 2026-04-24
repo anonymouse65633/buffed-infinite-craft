@@ -33,17 +33,26 @@ jobs:
           HUGGINGFACE: ${{ secrets.HUGGINGFACE_API_KEY }}
           FIREBASE:    ${{ secrets.FIREBASE_API_KEY }}
         run: |
-          sed -i "s|GROQ_PLACEHOLDER|${GROQ}|g"             config.js
-          sed -i "s|GEMINI_PLACEHOLDER|${GEMINI}|g"         config.js
-          sed -i "s|OPENROUTER_PLACEHOLDER|${OPENROUTER}|g" config.js
-          sed -i "s|COHERE_PLACEHOLDER|${COHERE}|g"         config.js
+          sed -i "s|GROQ_PLACEHOLDER|${GROQ}|g"               config.js
+          sed -i "s|GEMINI_PLACEHOLDER|${GEMINI}|g"           config.js
+          sed -i "s|OPENROUTER_PLACEHOLDER|${OPENROUTER}|g"   config.js
+          sed -i "s|COHERE_PLACEHOLDER|${COHERE}|g"           config.js
           sed -i "s|HUGGINGFACE_PLACEHOLDER|${HUGGINGFACE}|g" config.js
-          sed -i "s|FIREBASE_PLACEHOLDER|${FIREBASE}|g"     config.js
+          sed -i "s|FIREBASE_PLACEHOLDER|${FIREBASE}|g"       config.js
           echo "✅ Keys injected"
-          grep -c "PLACEHOLDER" config.js && echo "❌ Some placeholders not replaced!" || echo "✅ All placeholders replaced"
+          if grep -q "PLACEHOLDER" config.js; then
+            echo "❌ Some placeholders were NOT replaced!"
+            grep "PLACEHOLDER" config.js
+            exit 1
+          else
+            echo "✅ All placeholders replaced successfully"
+          fi
 
       - name: Obfuscate all JS files
         run: |
+          # Names that must survive obfuscation (used across files or in HTML onclick handlers)
+          RESERVED="FIREBASE_CONFIG,GROQ_API_KEY,GEMINI_API_KEY,OPENROUTER_API_KEY,COHERE_API_KEY,HUGGINGFACE_API_KEY,ADMIN,ADMIN_UIDS,ADMIN_USERNAMES,AUTH_USER,AUTH_UID,PLAYER_NAME,KNOWN_COMBOS,SHOP,QUESTS,MILESTONES,STARTERS,SORT_LABELS,BOOSTER_DURATIONS,showTokenToast,sendBroadcast,initializeFirebase,authInit,loadGame,saveGame,levelThreshold"
+
           for f in config.js firebase.js llm.js main.js state.js game.js constants.js leaderboard.js auth.js Admin.js Anticheat.js; do
             if [ -f "$f" ]; then
               javascript-obfuscator "$f" \
@@ -51,11 +60,12 @@ jobs:
                 --compact true \
                 --self-defending true \
                 --control-flow-flattening true \
-                --control-flow-flattening-threshold 0.5 \
+                --control-flow-flattening-threshold 0.4 \
                 --dead-code-injection true \
-                --dead-code-injection-threshold 0.3 \
+                --dead-code-injection-threshold 0.2 \
                 --identifier-names-generator hexadecimal \
                 --rename-globals false \
+                --reserved-names "$RESERVED" \
                 --string-array true \
                 --string-array-encoding rc4 \
                 --string-array-threshold 0.75 \
