@@ -99,18 +99,32 @@ async function authSignup() {
 
   setAuthLoading(true); setAuthStatus('');
   try {
+    // Quick pre-check to give a fast error before touching Firebase Auth
     const existing = await window._db.collection('accounts').doc(username).get();
     if (existing.exists) { setAuthStatus('❌ Username already taken.','error'); setAuthLoading(false); return; }
 
     const cred = await auth.createUserWithEmailAndPassword(_toEmail(username), password);
-    await window._db.collection('accounts').doc(username).set({
-      uid: cred.user.uid, displayName: username,
-      createdAt: firebase.firestore.FieldValue.serverTimestamp()
+    const uid  = cred.user.uid;
+
+    // Atomic transaction: claim username AND enforce 1 username per UID
+    const db        = window._db;
+    const userRef   = db.collection('accounts').doc(username);
+    const reverseRef= db.collection('uid_usernames').doc(uid);
+
+    await db.runTransaction(async tx => {
+      const [uSnap, rSnap] = await Promise.all([tx.get(userRef), tx.get(reverseRef)]);
+      if (uSnap.exists)  throw Object.assign(new Error('username_taken'),  { _ic: 'username_taken' });
+      if (rSnap.exists)  throw Object.assign(new Error('uid_has_account'), { _ic: 'uid_has_account' });
+      const now = firebase.firestore.FieldValue.serverTimestamp();
+      tx.set(userRef,    { uid, displayName: username, createdAt: now });
+      tx.set(reverseRef, { username, createdAt: now });
     });
+
     await _onAuthSuccess(cred.user, username, true);
   } catch(e) {
-    console.error('[Auth] Signup error:', e);
-    setAuthStatus(_friendlyError(e.code), 'error');
+    if (e._ic === 'username_taken')  { setAuthStatus('❌ Username already taken. Choose another.','error'); }
+    else if (e._ic === 'uid_has_account') { setAuthStatus('❌ This account already has a username.','error'); }
+    else { console.error('[Auth] Signup error:', e); setAuthStatus(_friendlyError(e.code), 'error'); }
     setAuthLoading(false);
   }
 }
@@ -204,17 +218,27 @@ async function authGoogleCreateAccount() {
       return;
     }
 
-    await window._db.collection('accounts').doc(username).set({
-      uid: _pendingGoogleUser.uid, displayName: username,
-      googleEmail: _pendingGoogleUser.email||'',
-      createdAt: firebase.firestore.FieldValue.serverTimestamp()
+    const uid       = _pendingGoogleUser.uid;
+    const db        = window._db;
+    const userRef   = db.collection('accounts').doc(username);
+    const reverseRef= db.collection('uid_usernames').doc(uid);
+
+    // Atomic transaction: claim username AND enforce 1 username per UID
+    await db.runTransaction(async tx => {
+      const [uSnap, rSnap] = await Promise.all([tx.get(userRef), tx.get(reverseRef)]);
+      if (uSnap.exists)  throw Object.assign(new Error('username_taken'),  { _ic: 'username_taken' });
+      if (rSnap.exists)  throw Object.assign(new Error('uid_has_account'), { _ic: 'uid_has_account' });
+      const now = firebase.firestore.FieldValue.serverTimestamp();
+      tx.set(userRef,    { uid, displayName: username, googleEmail: _pendingGoogleUser.email||'', createdAt: now });
+      tx.set(reverseRef, { username, createdAt: now });
     });
 
     await _onAuthSuccess(_pendingGoogleUser, username, true);
     _pendingGoogleUser = null;
   } catch(e) {
-    console.error('[Auth] Google create error:', e);
-    gStatus(_friendlyError(e.code), 'error');
+    if (e._ic === 'username_taken')       { gStatus('❌ Username already taken. Try another.','error'); }
+    else if (e._ic === 'uid_has_account') { gStatus('❌ This Google account already has a username.','error'); }
+    else { console.error('[Auth] Google create error:', e); gStatus(_friendlyError(e.code), 'error'); }
     if (btn) { btn.disabled=false; btn.textContent='🚀 Create Account'; }
   }
 }
