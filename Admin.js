@@ -24,18 +24,8 @@
 //    game_config/global    — global toggles
 // ═══════════════════════════════════════════════════════════════════════
 
-// ── !! CONFIGURE YOUR ADMIN ACCESS HERE !! ──────────────────────────────
-//
-//  PRIMARY LOCK — Firebase UID (most secure, can't be changed or spoofed)
-//  Find yours: Firebase Console → Authentication → Users → copy User UID
-//  Replace the placeholder below with your actual UID.
-//
-const ADMIN_UIDS      = ['P4XJhH5AwBZk9JbqwDi3H44XBDk2'];
-//
-//  SECONDARY LOCK — username (fallback for username/password login)
-//  Change this to your in-game username.
-//
-const ADMIN_USERNAMES = ['joshua_johnson'];
+// ── !! CONFIGURE YOUR ADMIN USERNAME(S) HERE !! ─────────────────────────
+const ADMIN_USERNAMES = ['yourusername'];   // ← replace with YOUR username
 // ─────────────────────────────────────────────────────────────────────────
 
 const ADMIN = (() => {
@@ -51,13 +41,7 @@ const ADMIN = (() => {
   let _editTarget = null;
 
   // ─── Permission helpers ──────────────────────────────────────────────
-  function isAdmin()  {
-    // UID check (primary — most secure, Google sign-in)
-    if (AUTH_UID  && ADMIN_UIDS[0] !== 'PASTE_YOUR_FIREBASE_UID_HERE' && ADMIN_UIDS.includes(AUTH_UID))   return true;
-    // Username check (fallback for username/password login)
-    if (AUTH_USER && ADMIN_USERNAMES[0] !== 'yourusername'             && ADMIN_USERNAMES.includes(AUTH_USER)) return true;
-    return false;
-  }
+  function isAdmin()  { return AUTH_USER && ADMIN_USERNAMES.includes(AUTH_USER); }
   function isOp()     { return !!window._ADMIN_OP_PERMS; }
   function hasPerm(p) { return isAdmin() || (window._ADMIN_OP_PERMS && window._ADMIN_OP_PERMS[p]); }
   function _db()      { return window._db || null; }
@@ -555,7 +539,6 @@ const ADMIN = (() => {
   <button class="admin-tab-btn" data-tab="violations"  onclick="ADMIN.switchTab('violations')"> 🚨 Violations</button>
   <button class="admin-tab-btn" data-tab="bans"        onclick="ADMIN.switchTab('bans')">       🚫 Bans</button>
   <button class="admin-tab-btn" data-tab="broadcast"   onclick="ADMIN.switchTab('broadcast')">  📢 Broadcast</button>
-  <button class="admin-tab-btn" data-tab="dms"         onclick="ADMIN.switchTab('dms')">        💬 DMs</button>
   <button class="admin-tab-btn" data-tab="leaderboard" onclick="ADMIN.switchTab('leaderboard')">🏆 Leaderboard</button>
   <button class="admin-tab-btn" data-tab="combos"      onclick="ADMIN.switchTab('combos')">     🧪 Combos</button>
   <button class="admin-tab-btn" data-tab="worldfirsts" onclick="ADMIN.switchTab('worldfirsts')">🌍 World Firsts</button>
@@ -588,7 +571,6 @@ const ADMIN = (() => {
       case 'violations':  el.innerHTML = await _tabViolations();  break;
       case 'bans':        el.innerHTML = await _tabBans();        break;
       case 'broadcast':   el.innerHTML = await _tabBroadcast();   break;
-      case 'dms':         el.innerHTML = await _tabDMs();         break;
       case 'leaderboard': el.innerHTML = await _tabLeaderboard(); break;
       case 'combos':      el.innerHTML = await _tabCombos();      break;
       case 'worldfirsts': el.innerHTML = await _tabWorldFirsts(); break;
@@ -738,7 +720,6 @@ const ADMIN = (() => {
     <button class="admin-btn success sm" onclick="ADMIN._quickGiveTokens('${_editTarget.uid}','${_editTarget.username}')">💰 Give Tokens</button>
     <button class="admin-btn warn sm" onclick="ADMIN._confirmClearInventory('${_editTarget.uid}','${_editTarget.username}')">🗑️ Clear Inventory</button>
     <button class="admin-btn sm" onclick="ADMIN._quickGiveItem('${_editTarget.uid}','${_editTarget.username}')">🎁 Give Item</button>
-    <button class="admin-btn sm" onclick="ADMIN._openDMTarget('${_editTarget.uid}','${_editTarget.username}')">💬 Send DM</button>
     <button class="admin-btn danger sm" onclick="ADMIN._openBanPrompt('${_editTarget.uid}','${_editTarget.username}')">🚫 Ban Player</button>
     <button class="admin-btn danger sm" onclick="ADMIN._confirmWipeSave('${_editTarget.uid}','${_editTarget.username}')">💥 Wipe Save</button>
   </div>
@@ -823,7 +804,6 @@ ${profileHtml}
             <td style="display:flex;gap:6px;flex-wrap:wrap">
               <button class="admin-btn sm" onclick="ADMIN._viewPlayer('${p.uid||''}','${p.displayName||p.id}')">✏️ Edit</button>
               <button class="admin-btn sm warn" onclick="ADMIN._openBanPrompt('${p.uid||''}','${p.displayName||p.id}')">🚫 Ban</button>
-              <button class="admin-btn sm ghost" onclick="ADMIN._openDMTarget('${p.uid||''}','${p.displayName||p.id}')">💬 DM</button>
             </td>
           </tr>
         `).join('')}
@@ -871,12 +851,6 @@ ${profileHtml}
     const itemKey = prompt(`Enter the shop item key to give to ${username}:\n(e.g. auto1, pet_robot, theme_dark)`);
     if (!itemKey?.trim()) return;
     givePlayerItem(uid, username, itemKey.trim());
-  }
-
-  function _openDMTarget(uid, username) {
-    _dmTarget = { uid, username };
-    _tab = 'dms';
-    _renderTab();
   }
 
   function _openBanPrompt(uid, username) {
@@ -1100,72 +1074,6 @@ ${profileHtml}
   // ─────────────────────────────────────────────────────────────────────
   // TAB: DMs
   // ─────────────────────────────────────────────────────────────────────
-  async function _tabDMs() {
-    let searchHtml = '';
-    let convoHtml  = '';
-
-    if (_dmTarget) {
-      const db = _db();
-      let msgs = [];
-      if (db) {
-        try {
-          const snap = await db.collection('dms').doc(_dmTarget.uid).collection('msgs').orderBy('sentAt','asc').limit(50).get();
-          msgs = snap.docs.map(d=>d.data());
-        } catch(_){}
-      }
-      const msgBubbles = msgs.map(m => `
-        <div style="display:flex;flex-direction:column;align-items:${m.fromAdmin?'flex-end':'flex-start'}">
-          <div class="dm-bubble ${m.fromAdmin?'from-admin':'from-player'}">${m.message||''}</div>
-          <div class="dm-bubble-time">${m.fromAdmin?'Admin':'Player'} · ${_ago(m.sentAt)}</div>
-        </div>
-      `).join('');
-
-      convoHtml = `
-<div class="admin-card">
-  <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
-    <button class="admin-btn ghost sm" onclick="ADMIN._clearDMTarget()">← Back</button>
-    <div class="admin-card-title" style="margin:0">💬 DM: ${_dmTarget.username}</div>
-  </div>
-  <div id="admin-dm-msgs">${msgBubbles || '<div style="opacity:0.4;font-size:13px;text-align:center;padding:20px">No messages yet.</div>'}</div>
-  <div style="display:flex;gap:8px">
-    <input class="admin-input" id="dm-msg-input" placeholder="Type a message…" onkeydown="if(event.key==='Enter') ADMIN._sendDM()">
-    <button class="admin-btn" onclick="ADMIN._sendDM()">Send</button>
-  </div>
-</div>
-      `;
-    }
-
-    return `
-${convoHtml}
-<div class="admin-card">
-  <div class="admin-card-title">💬 Open DM Conversation</div>
-  <div class="admin-search-row">
-    <input class="admin-input" id="dm-search" placeholder="Username…" style="max-width:250px" onkeydown="if(event.key==='Enter') ADMIN._lookupDMPlayer()">
-    <button class="admin-btn" onclick="ADMIN._lookupDMPlayer()">Open Chat</button>
-  </div>
-</div>
-    `;
-  }
-
-  async function _lookupDMPlayer() {
-    const username = (document.getElementById('dm-search')?.value||'').trim().toLowerCase();
-    if (!username) return;
-    const db = _db(); if (!db) return;
-    const acc = await db.collection('accounts').doc(username).get();
-    if (!acc.exists) { showTokenToast('❌ Player not found'); return; }
-    const uid = acc.data().uid;
-    _dmTarget = { uid, username };
-    _renderTab();
-  }
-
-  function _clearDMTarget() { _dmTarget = null; _renderTab(); }
-
-  async function _sendDM() {
-    const msg = (document.getElementById('dm-msg-input')?.value||'').trim();
-    if (!msg || !_dmTarget) return;
-    await sendDM(_dmTarget.uid, _dmTarget.username, msg);
-  }
-
   // ─────────────────────────────────────────────────────────────────────
   // TAB: LEADERBOARD
   // ─────────────────────────────────────────────────────────────────────
@@ -1653,39 +1561,36 @@ ${convoHtml}
     }
   }
 
-  // ─── Broadcast checker (shows broadcasts to players on load) ─────────
-  async function _checkBroadcasts() {
-    const db = _db(); if (!db) return;
-    try {
-      const lastSeen = parseInt(localStorage.getItem('_ic_last_bc')||'0');
-      const snap = await db.collection('broadcasts')
-        .orderBy('sentAt','desc').limit(5).get();
-      let newest = lastSeen;
-      snap.docs.forEach(doc => {
-        const b = doc.data();
-        const at = b.sentAt?.toMillis?.() || 0;
-        if (at > lastSeen) {
-          const icon = b.type==='warning'?'⚠️':b.type==='announcement'?'📣':'ℹ️';
-          setTimeout(() => showTokenToast(`${icon} ${b.message}`, 5000), 1500);
-          if (at > newest) newest = at;
-        }
-      });
-      if (newest > lastSeen) localStorage.setItem('_ic_last_bc', String(newest));
-    } catch(_){}
-  }
+  // ─── Broadcast listener (real-time — shows instantly to targeted players) ──
+  let _bcUnsub = null;
+  let _bcSeenIds = new Set();
 
-  // ─── DM checker (shows unread DMs to players) ────────────────────────
-  async function _checkDMs() {
-    const db = _db(); if (!db || !AUTH_UID) return;
+  function _subscribeBroadcasts() {
+    const db = _db(); if (!db) return;
+    if (_bcUnsub) { _bcUnsub(); _bcUnsub = null; }
     try {
-      const snap = await db.collection('dms').doc(AUTH_UID).collection('msgs')
-        .where('read','==',false).where('fromAdmin','==',true).limit(5).get();
-      snap.docs.forEach(doc => {
-        const m = doc.data();
-        setTimeout(() => showTokenToast(`💬 Admin: ${m.message}`, 6000), 2000);
-        doc.ref.update({ read: true }).catch(()=>{});
-      });
-    } catch(_){}
+      // Prime the seen set with existing docs so we don't replay old messages
+      db.collection('broadcasts').orderBy('sentAt','desc').limit(20).get().then(snap => {
+        snap.docs.forEach(doc => _bcSeenIds.add(doc.id));
+        // Now subscribe for new ones
+        _bcUnsub = db.collection('broadcasts')
+          .orderBy('sentAt','desc').limit(1)
+          .onSnapshot(snapshot => {
+            snapshot.docChanges().forEach(change => {
+              if (change.type !== 'added') return;
+              const doc = change.doc;
+              if (_bcSeenIds.has(doc.id)) return;
+              _bcSeenIds.add(doc.id);
+              const b = doc.data();
+              // Check if this broadcast is for me
+              const forMe = !b.targets || b.targets.includes(AUTH_USER);
+              if (!forMe) return;
+              const icon = b.type==='warning'?'⚠️':b.type==='announcement'?'📣':'ℹ️';
+              showTokenToast(`${icon} ${b.message}`, 6000);
+            });
+          }, () => {});
+      }).catch(() => {});
+    } catch(_) {}
   }
 
   // ─── Ban check (called from auth on login) ───────────────────────────
@@ -1756,8 +1661,7 @@ ${convoHtml}
     }
 
     // Always check for broadcasts and DMs for all players
-    await _checkBroadcasts();
-    await _checkDMs();
+    _subscribeBroadcasts();
 
     // Check OP status for non-admin users
     if (!isAdmin()) await _checkOPStatus();
@@ -1769,7 +1673,7 @@ ${convoHtml}
     // Tab helpers exposed for onclick handlers
     _searchPlayers, _loadAllPlayers, _viewPlayer, _clearEditTarget,
     _saveField, _quickGiveTokens, _confirmClearInventory, _confirmWipeSave,
-    _quickGiveItem, _openDMTarget, _openBanPrompt, _setBadge,
+    _quickGiveItem, _openBanPrompt, _setBadge,
     _dismissViolation, _unban, _issueBan,
     _sendBroadcast, _lookupDMPlayer, _clearDMTarget, _sendDM,
     _removeLB, _setBadgePrompt,
