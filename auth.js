@@ -1,21 +1,24 @@
 // ═══════════════════════════════════════════════════════════════════════
-//  AUTH.JS  —  Username + Password Authentication
-//  Stores accounts in Firestore: accounts/{username} → { passwordHash }
-//  Stores saves in:              saves/{username}    → { ...gameState }
-//  Session persisted in localStorage: ic_auth_user
+//  AUTH.JS  —  Firebase Authentication (email+password under the hood)
+//
+//  Users still type a plain username + password.
+//  Internally we use  username@ic.game  as the Firebase Auth email so
+//  Firestore security rules can safely use  request.auth.uid.
+//
+//  Firestore layout:
+//    accounts/{username}  →  { uid, displayName, createdAt }
+//    saves/{uid}          →  { ...gameState, savedAt }
+//    (uid = Firebase Auth UID — never the username)
 // ═══════════════════════════════════════════════════════════════════════
 
 // ── Auth State ────────────────────────────────────────────────────────
-var AUTH_USER = localStorage.getItem('ic_auth_user') || null;
+var AUTH_USER   = null;   // display username (string)
+var AUTH_UID    = null;   // Firebase Auth UID
 var authSaveTimeout = null;
 
-// ── Crypto: SHA-256 password hashing ─────────────────────────────────
-async function hashPassword(password) {
-  const encoder = new TextEncoder();
-  const data = encoder.encode(password + 'ic_salt_2024');
-  const hashBuffer = await crypto.subtle.digest('SHA-256', data);
-  const hashArray = Array.from(new Uint8Array(hashBuffer));
-  return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+// ── Synthetic e-mail helper ───────────────────────────────────────────
+function _toEmail(username) {
+  return username.toLowerCase().trim() + '@ic.game';
 }
 
 // ── Auth UI helpers ───────────────────────────────────────────────────
@@ -41,7 +44,8 @@ function setAuthLoading(loading) {
   const btn = document.getElementById('auth-submit-btn');
   if (!btn) return;
   btn.disabled = loading;
-  btn.textContent = loading ? '⏳ Please wait…' : (authMode === 'login' ? '🔐 Log In' : '🚀 Create Account');
+  btn.textContent = loading ? '⏳ Please wait…'
+                            : (authMode === 'login' ? '🔐 Log In' : '🚀 Create Account');
 }
 
 // ── Auth Mode (login / signup) ────────────────────────────────────────
@@ -49,23 +53,44 @@ var authMode = 'login';
 
 function switchAuthMode(mode) {
   authMode = mode;
-  const loginTab  = document.getElementById('auth-tab-login');
-  const signupTab = document.getElementById('auth-tab-signup');
-  const submitBtn = document.getElementById('auth-submit-btn');
+  const loginTab   = document.getElementById('auth-tab-login');
+  const signupTab  = document.getElementById('auth-tab-signup');
+  const submitBtn  = document.getElementById('auth-submit-btn');
   const confirmRow = document.getElementById('auth-confirm-row');
-  if (loginTab)  loginTab.classList.toggle('active', mode === 'login');
-  if (signupTab) signupTab.classList.toggle('active', mode === 'signup');
-  if (submitBtn) submitBtn.textContent = mode === 'login' ? '🔐 Log In' : '🚀 Create Account';
-  if (confirmRow) confirmRow.style.display = mode === 'signup' ? 'block' : 'none';
+  if (loginTab)    loginTab.classList.toggle('active', mode === 'login');
+  if (signupTab)   signupTab.classList.toggle('active', mode === 'signup');
+  if (submitBtn)   submitBtn.textContent = mode === 'login' ? '🔐 Log In' : '🚀 Create Account';
+  if (confirmRow)  confirmRow.style.display = mode === 'signup' ? 'block' : 'none';
   setAuthStatus('');
+}
+
+// ── Firebase Auth helper ──────────────────────────────────────────────
+function _getAuth() {
+  return typeof firebase !== 'undefined' ? firebase.auth() : null;
+}
+
+// ── Friendly error messages ───────────────────────────────────────────
+function _friendlyError(code) {
+  const map = {
+    'auth/user-not-found':        '❌ Account not found. Did you mean to sign up?',
+    'auth/wrong-password':        '❌ Incorrect password.',
+    'auth/email-already-in-use':  '❌ Username already taken. Choose another.',
+    'auth/weak-password':         '❌ Password must be at least 6 characters.',
+    'auth/invalid-email':         '❌ Invalid username format.',
+    'auth/too-many-requests':     '⏳ Too many attempts. Please wait a moment.',
+    'auth/network-request-failed':'⚠️ Network error — check your connection.',
+  };
+  return map[code] || '⚠️ Error: ' + code;
 }
 
 // ── Log In ────────────────────────────────────────────────────────────
 async function authLogin() {
-  if (!_fbReady()) {
-    setAuthStatus('⚠️ Firebase not ready. Check your config.js API keys.', 'error');
+  const auth = _getAuth();
+  if (!auth || !_fbReady()) {
+    setAuthStatus('⚠️ Firebase not ready. Check your config.js keys.', 'error');
     return;
   }
+
   const username = (document.getElementById('auth-username').value || '').trim().toLowerCase();
   const password = document.getElementById('auth-password').value || '';
 
@@ -76,54 +101,23 @@ async function authLogin() {
   setAuthStatus('');
 
   try {
-    const hash = await hashPassword(password);
-    const doc = await window._db.collection('accounts').doc(username).get();
-
-    if (!doc.exists) {
-      setAuthStatus('❌ Account not found. Did you mean to sign up?', 'error');
-      setAuthLoading(false);
-      return;
-    }
-
-    const data = doc.data();
-    if (data.passwordHash !== hash) {
-      setAuthStatus('❌ Incorrect password.', 'error');
-      setAuthLoading(false);
-      return;
-    }
-
-    // Success — load the game
-    AUTH_USER = username;
-    localStorage.setItem('ic_auth_user', username);
-    PLAYER_NAME = data.displayName || username;
-    localStorage.setItem('ic_player_name', PLAYER_NAME);
-
-    setAuthStatus('✅ Logged in! Loading your game…', 'success');
-
-    // Prompt browser to save password (Chrome/Edge Credential Management API)
-    _offerPasswordSave(username, password);
-
-    // Load cloud save if it exists
-    await cloudLoadGame(username);
-
-    hideAuthOverlay();
-    initGame();
-    updateAuthUI();
-    showTokenToast('👋 Welcome back, ' + PLAYER_NAME + '!');
-
+    const cred = await auth.signInWithEmailAndPassword(_toEmail(username), password);
+    await _onAuthSuccess(cred.user, username, false);
   } catch (e) {
-    console.error('Login error:', e);
-    setAuthStatus('⚠️ Error: ' + (e.message || 'Unknown error'), 'error');
+    console.error('[Auth] Login error:', e);
+    setAuthStatus(_friendlyError(e.code), 'error');
     setAuthLoading(false);
   }
 }
 
 // ── Sign Up ───────────────────────────────────────────────────────────
 async function authSignup() {
-  if (!_fbReady()) {
-    setAuthStatus('⚠️ Firebase not ready. Check your config.js API keys.', 'error');
+  const auth = _getAuth();
+  if (!auth || !_fbReady()) {
+    setAuthStatus('⚠️ Firebase not ready. Check your config.js keys.', 'error');
     return;
   }
+
   const username = (document.getElementById('auth-username').value || '').trim().toLowerCase();
   const password = document.getElementById('auth-password').value || '';
   const confirm  = document.getElementById('auth-confirm').value || '';
@@ -137,9 +131,7 @@ async function authSignup() {
   setAuthStatus('');
 
   try {
-    const hash = await hashPassword(password);
-
-    // Check if username is taken
+    // Check username not already taken
     const existing = await window._db.collection('accounts').doc(username).get();
     if (existing.exists) {
       setAuthStatus('❌ Username already taken. Choose another.', 'error');
@@ -147,46 +139,58 @@ async function authSignup() {
       return;
     }
 
-    // Create account
+    // Create Firebase Auth user
+    const cred = await auth.createUserWithEmailAndPassword(_toEmail(username), password);
+    const uid  = cred.user.uid;
+
+    // Store display name in Firestore (accounts collection is world-readable
+    // but only writable by the owner — see security rules)
     await window._db.collection('accounts').doc(username).set({
-      passwordHash: hash,
+      uid,
       displayName: username,
       createdAt: firebase.firestore.FieldValue.serverTimestamp()
     });
 
-    // Set session
-    AUTH_USER = username;
-    localStorage.setItem('ic_auth_user', username);
-    PLAYER_NAME = username;
-    localStorage.setItem('ic_player_name', PLAYER_NAME);
-
-    setAuthStatus('✅ Account created! Starting fresh game…', 'success');
-
-    // Prompt browser to save password
-    _offerPasswordSave(username, password);
-
-    // Clear any existing local save for clean start
-    localStorage.removeItem('infinite_craft_save');
-
-    hideAuthOverlay();
-    initGame();
-    updateAuthUI();
-    showTokenToast('🎉 Welcome to Infinite Craft, ' + PLAYER_NAME + '!');
-
+    await _onAuthSuccess(cred.user, username, true);
   } catch (e) {
-    console.error('Signup error:', e);
-    setAuthStatus('⚠️ Error: ' + (e.message || 'Unknown error'), 'error');
+    console.error('[Auth] Signup error:', e);
+    setAuthStatus(_friendlyError(e.code), 'error');
     setAuthLoading(false);
   }
 }
 
-// ── Submit handler (routes to login/signup) ───────────────────────────
+// ── Shared post-auth setup ────────────────────────────────────────────
+async function _onAuthSuccess(firebaseUser, username, isNew) {
+  AUTH_UID  = firebaseUser.uid;
+  AUTH_USER = username;
+
+  localStorage.setItem('ic_auth_user', username);
+  localStorage.setItem('ic_auth_uid',  AUTH_UID);
+
+  PLAYER_NAME = username;
+  localStorage.setItem('ic_player_name', PLAYER_NAME);
+
+  if (isNew) {
+    setAuthStatus('✅ Account created! Starting fresh game…', 'success');
+    localStorage.removeItem('infinite_craft_save');
+  } else {
+    setAuthStatus('✅ Logged in! Loading your game…', 'success');
+    await cloudLoadGame(AUTH_UID);
+  }
+
+  hideAuthOverlay();
+  initGame();
+  updateAuthUI();
+  showTokenToast(isNew ? '🎉 Welcome to Infinite Craft, ' + PLAYER_NAME + '!'
+                       : '👋 Welcome back, ' + PLAYER_NAME + '!');
+}
+
+// ── Submit handler ────────────────────────────────────────────────────
 function authSubmit() {
   if (authMode === 'login') authLogin();
   else authSignup();
 }
 
-// ── Handle Enter key in auth fields ──────────────────────────────────
 function authKeydown(e) {
   if (e.key === 'Enter') authSubmit();
 }
@@ -203,73 +207,73 @@ function toggleAuthPw(inputId, btn) {
 
 // ── Log Out ───────────────────────────────────────────────────────────
 async function authLogout() {
-  if (AUTH_USER) {
-    // Always save to localStorage first (synchronous, can't fail)
+  if (AUTH_USER && AUTH_UID) {
     saveGame();
     showTokenToast('💾 Saving progress…');
-    // Await cloud save so nothing is lost before reloading
     try {
-      await cloudSaveGame(AUTH_USER);
+      await cloudSaveGame(AUTH_UID);
       showTokenToast('✅ Progress saved! Logging out…');
-    } catch(e) {
+    } catch (e) {
       console.warn('[Auth] Cloud save on logout failed:', e);
     }
   }
+
+  try {
+    const auth = _getAuth();
+    if (auth) await auth.signOut();
+  } catch (e) {}
+
   AUTH_USER = null;
+  AUTH_UID  = null;
   localStorage.removeItem('ic_auth_user');
+  localStorage.removeItem('ic_auth_uid');
   localStorage.removeItem('ic_player_name');
-  // Brief delay so the toast is visible before reload
   setTimeout(() => location.reload(), 700);
 }
 
-// ── Update auth UI (used in account tab) ─────────────────────────────
+// ── Update auth UI ────────────────────────────────────────────────────
 function updateAuthUI() {
-  const nameEl = document.getElementById('auth-account-name');
+  const nameEl          = document.getElementById('auth-account-name');
   const loggedInSection = document.getElementById('auth-logged-in');
-  const loggedOutSection = document.getElementById('auth-logged-out');
+  const loggedOutSection= document.getElementById('auth-logged-out');
 
-  if (nameEl) nameEl.textContent = AUTH_USER || 'Guest';
-  if (loggedInSection) loggedInSection.style.display = AUTH_USER ? 'block' : 'none';
-  if (loggedOutSection) loggedOutSection.style.display = AUTH_USER ? 'none' : 'block';
+  if (nameEl)           nameEl.textContent = AUTH_USER || 'Guest';
+  if (loggedInSection)  loggedInSection.style.display  = AUTH_USER ? 'block' : 'none';
+  if (loggedOutSection) loggedOutSection.style.display = AUTH_USER ? 'none'  : 'block';
 }
 
 // ═══════════════════════════════════════════════════════════════════════
-//  CLOUD SAVE / LOAD
+//  CLOUD SAVE / LOAD  (keyed on UID, not username)
 // ═══════════════════════════════════════════════════════════════════════
 
-async function cloudSaveGame(username) {
-  if (!_fbReady() || !username) return;
+async function cloudSaveGame(uid) {
+  if (!_fbReady() || !uid) return;
   try {
     const saveData = buildSaveObject();
-    await window._db.collection('saves').doc(username).set({
+    await window._db.collection('saves').doc(uid).set({
       ...saveData,
       savedAt: firebase.firestore.FieldValue.serverTimestamp()
     });
-    console.log('[Auth] Cloud save OK for', username);
+    console.log('[Auth] Cloud save OK for uid', uid);
   } catch (e) {
     console.warn('[Auth] Cloud save failed:', e);
   }
 }
 
-async function cloudLoadGame(username) {
-  if (!_fbReady() || !username) return false;
+async function cloudLoadGame(uid) {
+  if (!_fbReady() || !uid) return false;
   try {
-    const doc = await window._db.collection('saves').doc(username).get();
+    const doc = await window._db.collection('saves').doc(uid).get();
     if (!doc.exists) {
-      console.log('[Auth] No cloud save for', username);
+      console.log('[Auth] No cloud save for uid', uid);
       return false;
     }
-    const data = doc.data();
-
-    // If the beacon write stored a full JSON blob, prefer that (most complete)
-    let saveData = data;
-    if (data._fullSave) {
-      try { saveData = JSON.parse(data._fullSave); } catch(e) {}
+    let saveData = doc.data();
+    if (saveData._fullSave) {
+      try { saveData = JSON.parse(saveData._fullSave); } catch (e) {}
     }
-
-    // Store in localStorage so loadGame() picks it up
     localStorage.setItem('infinite_craft_save', JSON.stringify(saveData));
-    console.log('[Auth] Cloud save loaded for', username);
+    console.log('[Auth] Cloud save loaded for uid', uid);
     return true;
   } catch (e) {
     console.warn('[Auth] Cloud load failed:', e);
@@ -277,103 +281,78 @@ async function cloudLoadGame(username) {
   }
 }
 
-// ── Debounced auto-save to cloud ─────────────────────────────────────
+// ── Debounced auto-save ───────────────────────────────────────────────
 function scheduleCloudSave() {
-  if (!AUTH_USER) return;
+  if (!AUTH_UID) return;
   clearTimeout(authSaveTimeout);
-  authSaveTimeout = setTimeout(() => cloudSaveGame(AUTH_USER), 3000);
+  authSaveTimeout = setTimeout(() => cloudSaveGame(AUTH_UID), 3000);
 }
 
 // ── Save on page close ────────────────────────────────────────────────
-// Always save to localStorage synchronously (browsers allow this in beforeunload).
-// Cloud save is attempted via fetch keepalive so it survives page close.
-window.addEventListener('beforeunload', (e) => {
-  if (!AUTH_USER) return;
+window.addEventListener('beforeunload', () => {
+  if (!AUTH_UID) return;
+  saveGame(); // synchronous localStorage write
 
-  // 1. Synchronous localStorage save — guaranteed to complete
-  saveGame();
-
-  // 2. Cloud save via fetch keepalive — browser keeps the request alive after page closes
   if (_fbReady()) {
     try {
-      const saveData = buildSaveObject();
-      // Firestore REST API endpoint for a direct set (no SDK needed for keepalive)
-      const projectId = (window._db && window._db.app && window._db.app.options.projectId) || '';
+      const saveData   = buildSaveObject();
+      const projectId  = (window._db?.app?.options?.projectId) || '';
       if (projectId) {
-        const url = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents/saves/${AUTH_USER}`;
-        // Build a minimal Firestore REST payload
+        const url    = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents/saves/${AUTH_UID}`;
         const fields = {};
-        fields['_savedAt'] = { stringValue: new Date().toISOString() };
-        fields['tokens']   = { integerValue: String(saveData.tokens || 0) };
-        fields['xp']       = { integerValue: String(saveData.xp || 0) };
-        fields['level']    = { integerValue: String(saveData.level || 1) };
-        fields['_beacon']  = { booleanValue: true };
-        // Also keep the full JSON blob in one field for reliable restore
+        fields['_savedAt']  = { stringValue: new Date().toISOString() };
+        fields['tokens']    = { integerValue: String(saveData.tokens  || 0) };
+        fields['xp']        = { integerValue: String(saveData.xp      || 0) };
+        fields['level']     = { integerValue: String(saveData.level   || 1) };
+        fields['_beacon']   = { booleanValue: true };
         fields['_fullSave'] = { stringValue: JSON.stringify(saveData) };
-        fetch(url + '?currentDocument.exists=false', {
+        fetch(url, {
           method: 'PATCH',
           keepalive: true,
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ fields })
         }).catch(() => {});
-        // Also fire the normal async cloud save (may or may not complete)
-        cloudSaveGame(AUTH_USER);
+        cloudSaveGame(AUTH_UID);
       }
-    } catch(err) {
-      // Never block the page from closing
-    }
+    } catch (e) {}
   }
 });
 
-// ── Prompt browser to save credentials (Chrome/Edge/Firefox) ─────────
-function _offerPasswordSave(username, password) {
-  if (!window.PasswordCredential) return; // not supported
-  try {
-    const cred = new PasswordCredential({
-      id: username,
-      password: password,
-      name: username
-    });
-    navigator.credentials.store(cred);
-  } catch(e) {
-    // Silently ignore — not all browsers support this
-  }
-}
-
 // ═══════════════════════════════════════════════════════════════════════
-//  INIT  —  Check if already logged in and start accordingly
+//  INIT  —  Firebase Auth state observer drives everything
 // ═══════════════════════════════════════════════════════════════════════
 
 async function authInit() {
-  if (AUTH_USER && _fbReady()) {
-    // Already logged in — verify account still exists and load save
-    try {
-      const doc = await window._db.collection('accounts').doc(AUTH_USER).get();
-      if (doc.exists) {
-        const data = doc.data();
-        PLAYER_NAME = data.displayName || AUTH_USER;
-        localStorage.setItem('ic_player_name', PLAYER_NAME);
+  const auth = _getAuth();
 
-        // Load cloud save
-        await cloudLoadGame(AUTH_USER);
-        initGame();
-        updateAuthUI();
-        return;
-      }
-    } catch (e) {
-      console.warn('[Auth] Session restore failed:', e);
-    }
-  }
-
-  // Not logged in — check if firebase is ready
-  if (!_fbReady()) {
-    // Firebase not configured — fall back to guest mode (no cloud save)
+  if (!auth || !_fbReady()) {
+    // Firebase not configured — guest mode
     console.warn('[Auth] Firebase not configured — running in guest mode');
     initGame();
     return;
   }
 
-  // Show login screen
-  showAuthOverlay();
-  switchAuthMode('login');
+  // Let Firebase Auth tell us whether a session exists
+  auth.onAuthStateChanged(async (firebaseUser) => {
+    if (firebaseUser) {
+      // Restore username from localStorage (we stored it on last login)
+      const storedUser = localStorage.getItem('ic_auth_user');
+      AUTH_UID  = firebaseUser.uid;
+      AUTH_USER = storedUser || firebaseUser.email?.replace('@ic.game', '') || firebaseUser.uid;
+
+      localStorage.setItem('ic_auth_uid', AUTH_UID);
+      PLAYER_NAME = AUTH_USER;
+      localStorage.setItem('ic_player_name', PLAYER_NAME);
+
+      await cloudLoadGame(AUTH_UID);
+      initGame();
+      updateAuthUI();
+    } else {
+      // No session — show login screen
+      AUTH_USER = null;
+      AUTH_UID  = null;
+      showAuthOverlay();
+      switchAuthMode('login');
+    }
+  });
 }
