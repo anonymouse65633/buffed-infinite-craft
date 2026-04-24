@@ -39,20 +39,13 @@ jobs:
           sed -i "s|COHERE_PLACEHOLDER|${COHERE}|g"           config.js
           sed -i "s|HUGGINGFACE_PLACEHOLDER|${HUGGINGFACE}|g" config.js
           sed -i "s|FIREBASE_PLACEHOLDER|${FIREBASE}|g"       config.js
-          echo "✅ Keys injected"
           if grep -q "PLACEHOLDER" config.js; then
-            echo "❌ Some placeholders were NOT replaced!"
-            grep "PLACEHOLDER" config.js
-            exit 1
-          else
-            echo "✅ All placeholders replaced successfully"
+            echo "❌ Placeholders not replaced!"; grep "PLACEHOLDER" config.js; exit 1
           fi
+          echo "✅ All keys injected"
 
-      - name: Obfuscate all JS files
+      - name: Obfuscate JS files
         run: |
-          # Names that must survive obfuscation (used across files or in HTML onclick handlers)
-          RESERVED="FIREBASE_CONFIG,GROQ_API_KEY,GEMINI_API_KEY,OPENROUTER_API_KEY,COHERE_API_KEY,HUGGINGFACE_API_KEY,ADMIN,ADMIN_UIDS,ADMIN_USERNAMES,AUTH_USER,AUTH_UID,PLAYER_NAME,KNOWN_COMBOS,SHOP,QUESTS,MILESTONES,STARTERS,SORT_LABELS,BOOSTER_DURATIONS,showTokenToast,sendBroadcast,initializeFirebase,authInit,loadGame,saveGame,levelThreshold"
-
           for f in config.js firebase.js llm.js main.js state.js game.js constants.js leaderboard.js auth.js Admin.js Anticheat.js; do
             if [ -f "$f" ]; then
               javascript-obfuscator "$f" \
@@ -65,11 +58,11 @@ jobs:
                 --dead-code-injection-threshold 0.2 \
                 --identifier-names-generator hexadecimal \
                 --rename-globals false \
-                --reserved-names "$RESERVED" \
+                --transform-object-keys false \
+                --reserved-names "^(FIREBASE_CONFIG|GROQ_API_KEY|GEMINI_API_KEY|OPENROUTER_API_KEY|COHERE_API_KEY|HUGGINGFACE_API_KEY|ADMIN|ADMIN_UIDS|ADMIN_USERNAMES|AUTH_USER|AUTH_UID|PLAYER_NAME|KNOWN_COMBOS|SHOP|QUESTS|MILESTONES|STARTERS|SORT_LABELS|BOOSTER_DURATIONS|showTokenToast|sendBroadcast|initializeFirebase|authInit|loadGame|saveGame|levelThreshold)$" \
                 --string-array true \
                 --string-array-encoding rc4 \
                 --string-array-threshold 0.75 \
-                --transform-object-keys true \
                 --unicode-escape-sequence false
               echo "✅ Obfuscated $f"
             fi
