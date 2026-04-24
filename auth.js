@@ -257,7 +257,7 @@ async function _onAuthSuccess(firebaseUser, username, isNew) {
 
   // ── Admin panel init ──────────────────────────────────────────────
   if (typeof ADMIN !== 'undefined' && ADMIN.init) {
-    setTimeout(() => ADMIN.init(), 500);
+    setTimeout(() => ADMIN.init(), 2000);
   }
 
   // Auto-enrol in leaderboard — no manual join needed
