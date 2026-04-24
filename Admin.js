@@ -24,8 +24,9 @@
 //    game_config/global    — global toggles
 // ═══════════════════════════════════════════════════════════════════════
 
-// ── !! CONFIGURE YOUR ADMIN USERNAME(S) HERE !! ─────────────────────────
-const ADMIN_USERNAMES = ['yourusername'];   // ← replace with YOUR username
+// ── !! CONFIGURE YOUR ADMIN ACCESS HERE !! ──────────────────────────────
+const ADMIN_UIDS      = ['P4XJhH5AwBZk9JbqwDi3H44XBDk2'];  // Firebase UID (primary)
+const ADMIN_USERNAMES = ['joshua_johnson'];                   // username (fallback)
 // ─────────────────────────────────────────────────────────────────────────
 
 const ADMIN = (() => {
@@ -41,7 +42,11 @@ const ADMIN = (() => {
   let _editTarget = null;
 
   // ─── Permission helpers ──────────────────────────────────────────────
-  function isAdmin()  { return AUTH_USER && ADMIN_USERNAMES.includes(AUTH_USER); }
+  function isAdmin()  {
+    if (AUTH_UID  && ADMIN_UIDS[0]      !== 'PASTE_YOUR_FIREBASE_UID_HERE' && ADMIN_UIDS.includes(AUTH_UID))      return true;
+    if (AUTH_USER && ADMIN_USERNAMES[0] !== 'yourusername'                 && ADMIN_USERNAMES.includes(AUTH_USER)) return true;
+    return false;
+  }
   function isOp()     { return !!window._ADMIN_OP_PERMS; }
   function hasPerm(p) { return isAdmin() || (window._ADMIN_OP_PERMS && window._ADMIN_OP_PERMS[p]); }
   function _db()      { return window._db || null; }
