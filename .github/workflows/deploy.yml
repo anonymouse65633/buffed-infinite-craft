@@ -28,7 +28,6 @@ jobs:
         run: |
           sed -i 's|src="admin.js"|src="Admin.js"|g'         index.html
           sed -i 's|src="anticheat.js"|src="Anticheat.js"|g' index.html
-          echo "✅ Case fixed in index.html"
 
       - name: Inject API keys into config.js
         env:
@@ -50,17 +49,13 @@ jobs:
           fi
           echo "✅ All keys injected"
 
-      - name: Obfuscate JS files
+      - name: Obfuscate game logic files
         run: |
-          # NOTE: self-defending and control-flow-flattening are intentionally OFF.
-          # Both wrap files in IIFEs which breaks cross-file globals (FIREBASE_CONFIG,
-          # ADMIN, showTokenToast, etc). The remaining options still produce
-          # very strong obfuscation via RC4 string encoding + hex identifiers.
-          #
-          # config.js is excluded — it's generated fresh each build with real keys,
-          # and obfuscating it breaks FIREBASE_CONFIG references in firebase.js.
-
-          for f in firebase.js llm.js main.js state.js game.js constants.js leaderboard.js auth.js Admin.js Anticheat.js; do
+          # Obfuscate only self-contained files with no cross-file global deps.
+          # firebase.js and Admin.js are excluded — obfuscator renames their
+          # cross-file references (FIREBASE_CONFIG, _bcSetAudience) even with
+          # --rename-globals false.
+          for f in llm.js state.js game.js constants.js leaderboard.js Anticheat.js; do
             if [ -f "$f" ]; then
               javascript-obfuscator "$f" \
                 --output "$f" \
