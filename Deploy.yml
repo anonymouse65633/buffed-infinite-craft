@@ -1,0 +1,65 @@
+name: Build & Deploy
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install obfuscator
+        run: npm install -g javascript-obfuscator
+
+      - name: Inject API keys from secrets
+        run: |
+          sed -i "s|__GROQ_API_KEY__|${{ secrets.GROQ_API_KEY }}|g"               config.js
+          sed -i "s|__GEMINI_API_KEY__|${{ secrets.GEMINI_API_KEY }}|g"           config.js
+          sed -i "s|__OPENROUTER_API_KEY__|${{ secrets.OPENROUTER_API_KEY }}|g"   config.js
+          sed -i "s|__COHERE_API_KEY__|${{ secrets.COHERE_API_KEY }}|g"           config.js
+          sed -i "s|__HUGGINGFACE_API_KEY__|${{ secrets.HUGGINGFACE_API_KEY }}|g" config.js
+          sed -i "s|__FIREBASE_API_KEY__|${{ secrets.FIREBASE_API_KEY }}|g"       config.js
+
+      - name: Obfuscate JS files
+        run: |
+          for f in config.js firebase.js llm.js main.js state.js game.js constants.js leaderboard.js auth.js Admin.js Anticheat.js; do
+            if [ -f "$f" ]; then
+              javascript-obfuscator "$f" \
+                --output "$f" \
+                --compact true \
+                --self-defending true \
+                --control-flow-flattening true \
+                --control-flow-flattening-threshold 0.5 \
+                --dead-code-injection true \
+                --dead-code-injection-threshold 0.3 \
+                --identifier-names-generator hexadecimal \
+                --rename-globals false \
+                --string-array true \
+                --string-array-encoding rc4 \
+                --string-array-threshold 0.75 \
+                --transform-object-keys true \
+                --unicode-escape-sequence false
+              echo "✅ Obfuscated $f"
+            fi
+          done
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: '.'
+
+      - name: Deploy to GitHub Pages
+        uses: actions/deploy-pages@v4
