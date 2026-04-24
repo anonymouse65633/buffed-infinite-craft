@@ -343,13 +343,21 @@
       <button id="auth-tab-login" class="active" onclick="switchAuthMode('login')">🔐 Log In</button>
       <button id="auth-tab-signup" onclick="switchAuthMode('signup')">✨ Sign Up</button>
     </div>
+    <form id="auth-form" onsubmit="return false" autocomplete="on">
     <div id="auth-fields">
-      <input id="auth-username" type="text" placeholder="Username" maxlength="24" autocomplete="username" onkeydown="authKeydown(event)">
-      <input id="auth-password" type="password" placeholder="Password" autocomplete="current-password" onkeydown="authKeydown(event)">
+      <input id="auth-username" name="username" type="text" placeholder="Username" maxlength="24" autocomplete="username" onkeydown="authKeydown(event)">
+      <div class="auth-pw-wrap">
+        <input id="auth-password" name="password" type="password" placeholder="Password" autocomplete="current-password" onkeydown="authKeydown(event)">
+        <button type="button" class="auth-eye-btn" onclick="toggleAuthPw('auth-password',this)" tabindex="-1">👁</button>
+      </div>
       <div id="auth-confirm-row" style="display:none">
-        <input id="auth-confirm" type="password" placeholder="Confirm Password" onkeydown="authKeydown(event)">
+        <div class="auth-pw-wrap">
+          <input id="auth-confirm" name="confirm-password" type="password" placeholder="Confirm Password" autocomplete="new-password" onkeydown="authKeydown(event)">
+          <button type="button" class="auth-eye-btn" onclick="toggleAuthPw('auth-confirm',this)" tabindex="-1">👁</button>
+        </div>
       </div>
     </div>
+    </form>
     <div id="auth-status" class="auth-status" style="display:none"></div>
     <button id="auth-submit-btn" class="primary" onclick="authSubmit()">🔐 Log In</button>
     <p id="auth-guest-note">Progress is saved to your account across all devices.</p>
