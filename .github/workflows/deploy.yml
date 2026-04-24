@@ -24,6 +24,12 @@ jobs:
       - name: Install obfuscator
         run: npm install -g javascript-obfuscator
 
+      - name: Fix script case sensitivity in index.html
+        run: |
+          sed -i 's|src="admin.js"|src="Admin.js"|g'         index.html
+          sed -i 's|src="anticheat.js"|src="Anticheat.js"|g' index.html
+          echo "✅ Case fixed in index.html"
+
       - name: Inject API keys into config.js
         env:
           GROQ:        ${{ secrets.GROQ_API_KEY }}
@@ -46,7 +52,9 @@ jobs:
 
       - name: Obfuscate JS files
         run: |
-          for f in config.js firebase.js llm.js main.js state.js game.js constants.js leaderboard.js auth.js Admin.js Anticheat.js; do
+          # config.js is NOT obfuscated — obfuscator renames FIREBASE_CONFIG
+          # It's generated fresh each build so keys are never in the repo
+          for f in firebase.js llm.js main.js state.js game.js constants.js leaderboard.js auth.js Admin.js Anticheat.js; do
             if [ -f "$f" ]; then
               javascript-obfuscator "$f" \
                 --output "$f" \
@@ -59,7 +67,6 @@ jobs:
                 --identifier-names-generator hexadecimal \
                 --rename-globals false \
                 --transform-object-keys false \
-                --reserved-names "^(FIREBASE_CONFIG|GROQ_API_KEY|GEMINI_API_KEY|OPENROUTER_API_KEY|COHERE_API_KEY|HUGGINGFACE_API_KEY|ADMIN|ADMIN_UIDS|ADMIN_USERNAMES|AUTH_USER|AUTH_UID|PLAYER_NAME|KNOWN_COMBOS|SHOP|QUESTS|MILESTONES|STARTERS|SORT_LABELS|BOOSTER_DURATIONS|showTokenToast|sendBroadcast|initializeFirebase|authInit|loadGame|saveGame|levelThreshold)$" \
                 --string-array true \
                 --string-array-encoding rc4 \
                 --string-array-threshold 0.75 \
