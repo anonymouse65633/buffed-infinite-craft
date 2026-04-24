@@ -83,6 +83,19 @@ function _getLbPlayerId() {
 // ── Push stats to leaderboard ─────────────────────────────────────────────
 async function pushLeaderboardStats() {
   if (!lbSignedUp || !_fbReady()) return;
+  // ── Anti-cheat gate ─────────────────────────────────────────────────
+  if (window._AC_SUSPICIOUS || (typeof AC !== 'undefined' && AC.isSuspicious())) {
+    console.warn('[AC] pushLeaderboardStats blocked: suspicious session');
+    return;
+  }
+  // ── Sanity-check values before submitting ──────────────────────────
+  const MAX_LB = { totalCrafts:5000000, firstDiscs:50000, totalTokensEarned:500000000, prestige:10, level:100000 };
+  if (totalCrafts > MAX_LB.totalCrafts || firstDiscs.length > MAX_LB.firstDiscs ||
+      totalTokensEarned > MAX_LB.totalTokensEarned || prestige > MAX_LB.prestige || level > MAX_LB.level) {
+    console.warn('[AC] pushLeaderboardStats blocked: values out of range');
+    window._AC_SUSPICIOUS = true;
+    return;
+  }
   const earned = computeEarnedBadges();
   const badges = earned.map(b => b.id);
   const feat   = lbFeaturedBadge && badges.includes(lbFeaturedBadge) ? lbFeaturedBadge : (badges[badges.length-1] || null);
