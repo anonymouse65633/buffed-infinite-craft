@@ -69,6 +69,26 @@ _initGlobalBadge();
 function openUsernameModal() {
   const inp = document.getElementById('username-input');
   if (inp) inp.value = PLAYER_NAME;
+
+  // Check 7-day cooldown
+  const lastChange = parseInt(localStorage.getItem('ic_last_name_change') || '0');
+  const daysSince = (Date.now() - lastChange) / (1000 * 60 * 60 * 24);
+  const daysLeft = Math.ceil(7 - daysSince);
+  const cooldownEl = document.getElementById('username-cooldown');
+  if (cooldownEl) {
+    if (lastChange && daysSince < 7) {
+      cooldownEl.textContent = `⏳ You can change your name again in ${daysLeft} day${daysLeft!==1?'s':''}.`;
+      cooldownEl.style.display = 'block';
+      const saveBtn = document.getElementById('username-save-btn');
+      if (saveBtn) saveBtn.disabled = true;
+    } else {
+      cooldownEl.textContent = '';
+      cooldownEl.style.display = 'none';
+      const saveBtn = document.getElementById('username-save-btn');
+      if (saveBtn) saveBtn.disabled = false;
+    }
+  }
+
   const m = document.getElementById('username-modal');
   if (m) m.classList.add('open');
 }
@@ -77,11 +97,19 @@ function closeUsernameModal() {
   if (m) m.classList.remove('open');
 }
 function saveUsername() {
+  const lastChange = parseInt(localStorage.getItem('ic_last_name_change') || '0');
+  const daysSince = (Date.now() - lastChange) / (1000 * 60 * 60 * 24);
+  if (lastChange && daysSince < 7) {
+    const daysLeft = Math.ceil(7 - daysSince);
+    showTokenToast(`⏳ You can change your name in ${daysLeft} more day${daysLeft!==1?'s':''}.`);
+    return;
+  }
   const inp = document.getElementById('username-input');
   const val = (inp ? inp.value.trim() : '') || PLAYER_NAME;
   if (val.length < 2) { alert('Name too short — at least 2 characters!'); return; }
   PLAYER_NAME = val.slice(0, 24);
   localStorage.setItem('ic_player_name', PLAYER_NAME);
+  localStorage.setItem('ic_last_name_change', Date.now().toString());
   const nameEl = document.getElementById('gb-name');
   if (nameEl) nameEl.textContent = PLAYER_NAME;
   closeUsernameModal();
