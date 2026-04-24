@@ -5,6 +5,9 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Infinite Craft</title>
 <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&display=swap" rel="stylesheet">
+<!-- Firebase Compat SDK — used for global first discoveries & combo cache -->
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
 <style>
 /* ═══════════════════════════════════════════════════════════════
    THEME
@@ -704,6 +707,62 @@ body {
 .prestige-tag.purple { background:linear-gradient(135deg,#7c3aed,#a855f7); color:#fff; }
 
 /* ═══════════════════════════════════════════════════════════════
+   GLOBAL FEED & USERNAME
+═══════════════════════════════════════════════════════════════ */
+#global-badge {
+  position:fixed; right:calc(var(--sb-width) + 14px); top:14px;
+  z-index:20; display:flex; align-items:center; gap:6px;
+  background:var(--sb-bg); border:1px solid var(--border);
+  border-radius:10px; padding:5px 10px; font-size:12px;
+  box-shadow:0 2px 8px rgba(0,0,0,0.1); cursor:pointer;
+  transition:background 0.12s;
+}
+#global-badge:hover { background:var(--inst-hover); }
+#global-badge .gb-dot { width:7px; height:7px; border-radius:50%; background:#10b981; flex-shrink:0; animation:gbPulse 2s ease-in-out infinite; }
+#global-badge .gb-dot.offline { background:#888; animation:none; }
+@keyframes gbPulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
+#global-badge .gb-name { font-weight:600; max-width:100px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+#global-badge .gb-label { opacity:0.55; }
+
+/* Username change modal */
+#username-modal {
+  position:fixed; inset:0; background:rgba(0,0,0,0.55);
+  z-index:40000; display:none; align-items:center; justify-content:center;
+}
+#username-modal.open { display:flex; }
+#username-card {
+  background:var(--sb-bg); border:1px solid var(--border);
+  border-radius:16px; padding:24px; width:300px;
+  box-shadow:0 16px 40px rgba(0,0,0,0.25); text-align:center;
+}
+#username-card h3 { font-size:18px; margin-bottom:8px; }
+#username-card p  { font-size:13px; opacity:0.6; margin-bottom:14px; line-height:1.5; }
+#username-input {
+  width:100%; padding:8px 12px; border-radius:8px;
+  border:1px solid var(--border); background:var(--sb-bg);
+  color:var(--text); font-family:'Roboto',sans-serif; font-size:14px;
+  margin-bottom:12px; outline:none;
+}
+#username-input:focus { border-color:var(--accent); }
+.um-btns { display:flex; gap:8px; }
+.um-btns button {
+  flex:1; padding:9px; border-radius:8px; border:1px solid var(--border);
+  font-family:'Roboto',sans-serif; font-size:13px; font-weight:600;
+  cursor:pointer; background:var(--inst-hover); color:var(--text); transition:opacity 0.12s;
+}
+.um-btns button.primary { background:var(--accent); color:#fff; border:none; }
+.um-btns button:hover { opacity:0.85; }
+
+/* World first badge on instance */
+.instance.world-first::after {
+  bottom:-6px; left:50%;
+  content:"🌍 World First!";
+  color:#10b981; font-size:13px; font-weight:700;
+  position:absolute; transform:translate(-50%,100%);
+  white-space:nowrap;
+}
+
+/* ═══════════════════════════════════════════════════════════════
    RAINBOW / ANIMATED TEXT
 ═══════════════════════════════════════════════════════════════ */
 @keyframes rainbowText {
@@ -1276,6 +1335,26 @@ body {
   </div>
 </div>
 
+<!-- ── Global player badge (top-left of canvas) ── -->
+<div id="global-badge" onclick="openUsernameModal()" title="Click to change your display name">
+  <div class="gb-dot" id="gb-dot"></div>
+  <span class="gb-name" id="gb-name">...</span>
+  <span class="gb-label">· global</span>
+</div>
+
+<!-- ── Username change modal ── -->
+<div id="username-modal">
+  <div id="username-card">
+    <h3>👤 Your Display Name</h3>
+    <p>This name shows when you make a <b>World First</b> discovery. Make it yours!</p>
+    <input id="username-input" type="text" placeholder="Enter a display name..." maxlength="24">
+    <div class="um-btns">
+      <button onclick="closeUsernameModal()">Cancel</button>
+      <button class="primary" onclick="saveUsername()">Save</button>
+    </div>
+  </div>
+</div>
+
 <script>
 // ╔═══════════════════════════════════════════════════════════════════════╗
 // ║                     !! API KEYS — EDIT HERE !!                       ║
@@ -1303,6 +1382,124 @@ const COHERE_API_KEY      = "eqBEaVHdjkFEeVs611x3NPUiLCTZ06IO1mtSGQzs";
 // ║  Get key: https://huggingface.co/settings/tokens                     ║
 const HUGGINGFACE_API_KEY = "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";
 // ╚═══════════════════════════════════════════════════════════════════════╝
+
+// ╔═══════════════════════════════════════════════════════════════════════╗
+// ║               FIREBASE CONFIG — for global discoveries               ║
+// ║  1. Go to https://console.firebase.google.com                        ║
+// ║  2. Create project → Add Web App → copy firebaseConfig below         ║
+// ║  3. Firestore → Create Database → Start in Test Mode                 ║
+// ║  Without this, the game works fine but first-discoveries are local   ║
+// ╚═══════════════════════════════════════════════════════════════════════╝
+const FIREBASE_CONFIG = {
+  apiKey:            "YOUR_FIREBASE_API_KEY",
+  authDomain:        "YOUR_PROJECT_ID.firebaseapp.com",
+  projectId:         "YOUR_PROJECT_ID",
+  storageBucket:     "YOUR_PROJECT_ID.appspot.com",
+  messagingSenderId: "YOUR_SENDER_ID",
+  appId:             "YOUR_APP_ID"
+};
+
+// ── Player Identity ────────────────────────────────────────────
+function _getPlayerName() {
+  let n = localStorage.getItem('ic_player_name');
+  if (!n) { n = 'Crafter' + Math.floor(Math.random()*9000+1000); localStorage.setItem('ic_player_name', n); }
+  return n;
+}
+let PLAYER_NAME = _getPlayerName();
+
+// ── Combo Cache (localStorage + cloud) ────────────────────────
+let KNOWN_COMBOS = {};
+(function _loadComboCache() {
+  try { const r = localStorage.getItem('ic_combos'); if (r) KNOWN_COMBOS = JSON.parse(r); } catch(e) {}
+})();
+function _saveComboCache() {
+  try { localStorage.setItem('ic_combos', JSON.stringify(KNOWN_COMBOS)); } catch(e) {}
+}
+function _comboKey(aName, bName) { return [aName, bName].sort().join('|||'); }
+
+// ── Bad-word sanitiser ─────────────────────────────────────────
+const _BAD_RE = /\b(fuck|shit|cunt|nigger|nigga|faggot|fag|rape|porn|nude|naked|sex|bitch|bastard|asshole|dick|cock|pussy|slut|whore|retard|pedo|pedophile|terrorist|bomb|murder|suicide|self.?harm)\b/gi;
+function sanitizeElementName(name) {
+  return (name || '').replace(/[<>{}()\[\]\\]/g, '').replace(_BAD_RE, m => '★'.repeat(m.length)).trim() || 'Mysterious Element';
+}
+
+// ── Firebase Init ──────────────────────────────────────────────
+let _db = null;
+(function _initFirebase() {
+  if (!FIREBASE_CONFIG.apiKey || FIREBASE_CONFIG.apiKey.startsWith('YOUR_')) {
+    console.info('ℹ️  Firebase not configured — global discoveries disabled. See FIREBASE_CONFIG above.');
+    return;
+  }
+  try {
+    const app = firebase.initializeApp(FIREBASE_CONFIG);
+    _db = firebase.firestore(app);
+    console.log('🔥 Firebase connected — global discoveries active!');
+    _subscribeGlobalFeed();
+  } catch(e) { console.warn('Firebase init failed:', e.message); }
+})();
+
+function _fbReady() { return !!_db; }
+function _encKey(str) { return str.replace(/[/\\.#$[\]\s]/g, '_').replace(/_+/g,'_').slice(0, 200); }
+
+// Check cloud combo cache
+async function _getCloudCombo(key) {
+  if (!_db) return null;
+  try {
+    const snap = await _db.collection('combos').doc(_encKey(key)).get();
+    if (snap.exists) { const d = snap.data(); return { emoji: d.emoji, name: d.name }; }
+  } catch(e) {}
+  return null;
+}
+
+// Write combo to cloud (only if not already there)
+async function _setCloudCombo(key, result) {
+  if (!_db) return;
+  try {
+    const ref = _db.collection('combos').doc(_encKey(key));
+    const snap = await ref.get();
+    if (!snap.exists) {
+      await ref.set({ emoji: result.emoji, name: result.name, discoverer: PLAYER_NAME, at: firebase.firestore.FieldValue.serverTimestamp() });
+    }
+  } catch(e) {}
+}
+
+// Claim global first discovery (atomic — only first caller wins)
+async function _claimGlobalFirst(name, emoji) {
+  if (!_db) return { isGlobalFirst: false, discoverer: '' };
+  try {
+    const ref = _db.collection('global_firsts').doc(_encKey(name));
+    const snap = await ref.get();
+    if (!snap.exists) {
+      await ref.set({ emoji, name, discoverer: PLAYER_NAME, at: firebase.firestore.FieldValue.serverTimestamp() });
+      // Add to global feed
+      try {
+        await _db.collection('global_feed').add({ emoji, name, discoverer: PLAYER_NAME, at: firebase.firestore.FieldValue.serverTimestamp() });
+      } catch(e) {}
+      return { isGlobalFirst: true, discoverer: PLAYER_NAME };
+    }
+    return { isGlobalFirst: false, discoverer: snap.data().discoverer || '???' };
+  } catch(e) { return { isGlobalFirst: false, discoverer: '' }; }
+}
+
+// ── Global Feed (live updates from Firestore) ──────────────────
+var _globalFeedUnsub = null;
+function _subscribeGlobalFeed() {
+  if (!_db) return;
+  try {
+    _globalFeedUnsub = _db.collection('global_feed')
+      .orderBy('at', 'desc').limit(1)
+      .onSnapshot(snap => {
+        snap.docChanges().forEach(change => {
+          if (change.type === 'added') {
+            const d = change.doc.data();
+            if (d.discoverer !== PLAYER_NAME) { // don't show our own
+              showTokenToast(`🌍 ${d.discoverer} discovered ${d.emoji} ${d.name} first!`);
+            }
+          }
+        });
+      }, () => {});
+  } catch(e) {}
+}
 
 // ── Zoom sensitivity (lower = less sensitive) ──────────────────
 const ZOOM_FACTOR = 1.07;   // original was 1.12; reduce for gentler zoom
@@ -1878,6 +2075,38 @@ updateLevelHUD();
 updateLogo();
 initCanvas();
 initControls();
+_initGlobalBadge();
+
+// ─────────────────────────────────────────────────────────────
+//  USERNAME MODAL
+// ─────────────────────────────────────────────────────────────
+function openUsernameModal() {
+  const inp = document.getElementById('username-input');
+  if (inp) inp.value = PLAYER_NAME;
+  const m = document.getElementById('username-modal');
+  if (m) m.classList.add('open');
+}
+function closeUsernameModal() {
+  const m = document.getElementById('username-modal');
+  if (m) m.classList.remove('open');
+}
+function saveUsername() {
+  const inp = document.getElementById('username-input');
+  const val = (inp ? inp.value.trim() : '') || PLAYER_NAME;
+  if (val.length < 2) { alert('Name too short — at least 2 characters!'); return; }
+  PLAYER_NAME = val.slice(0, 24);
+  localStorage.setItem('ic_player_name', PLAYER_NAME);
+  const nameEl = document.getElementById('gb-name');
+  if (nameEl) nameEl.textContent = PLAYER_NAME;
+  closeUsernameModal();
+  showTokenToast('👤 Name saved: ' + PLAYER_NAME);
+}
+function _initGlobalBadge() {
+  const nameEl = document.getElementById('gb-name');
+  const dotEl  = document.getElementById('gb-dot');
+  if (nameEl) nameEl.textContent = PLAYER_NAME;
+  if (dotEl)  dotEl.classList.toggle('offline', !_fbReady());
+}
 
 // ─────────────────────────────────────────────────────────────
 //  PRESTIGE HELPERS
@@ -2311,10 +2540,11 @@ function posGhost(cx,cy) { ghost.style.left=(cx-45)+'px'; ghost.style.top=(cy-45
 // ─────────────────────────────────────────────────────────────
 //  SPAWN
 // ─────────────────────────────────────────────────────────────
-function spawnEl(emoji, name, wx, wy, isFirst=false) {
+function spawnEl(emoji, name, wx, wy, isFirst=false, isWorldFirst=false) {
   const el = document.createElement('div');
   el.className = 'instance new-spawn';
   if (isFirst) el.classList.add('first-disc');
+  if (isWorldFirst) el.classList.add('world-first');
   el.innerHTML = `<span class="instance-emoji">${emoji}</span><span class="instance-text">${name}</span>`;
   el.style.left = wx+'px'; el.style.top = wy+'px';
   const id=uid++, entry={id,el,emoji,name,x:wx,y:wy};
@@ -2389,8 +2619,14 @@ async function combine(a, b, autoMode=false) {
     const isFirst = register(res.emoji,res.name,true);
     const alreadyKnew = !isFirst;
 
+    // ── Global first-discovery check (before spawn so correct badge shows) ──
+    let _globalFirstResult = { isGlobalFirst: false, discoverer: '' };
+    if (isFirst) {
+      _globalFirstResult = await _claimGlobalFirst(res.name, res.emoji);
+    }
+
     removeEl(a); removeEl(b);
-    spawnEl(res.emoji,res.name,mx,my,isFirst);
+    spawnEl(res.emoji,res.name,mx,my,isFirst,_globalFirstResult.isGlobalFirst);
     totalCrafts++;
 
     // EXP calculation
@@ -2407,7 +2643,14 @@ async function combine(a, b, autoMode=false) {
     gainTokens(tokGain, isFirst);
 
     if (isFirst) {
-      showDiscoveryToast(res.emoji+' '+res.name);
+      if (_globalFirstResult.isGlobalFirst) {
+        showDiscoveryToast('🌍 WORLD FIRST! ' + res.emoji + ' ' + res.name);
+        showTokenToast('🌟 Global First Discovery — you\'re in the history books!');
+      } else if (_fbReady() && _globalFirstResult.discoverer) {
+        showDiscoveryToast('✨ ' + res.emoji + ' ' + res.name + ' (first: ' + _globalFirstResult.discoverer + ')');
+      } else {
+        showDiscoveryToast(res.emoji+' '+res.name);
+      }
       robotPetDiscoveryBurst();
       checkSecretTriggers(res.name);
       if (owned['discovery_bonus']) {
@@ -2936,8 +3179,11 @@ function closeCustomModal() {
 }
 function confirmCustomElement() {
   const emoji=(document.getElementById('custom-emoji').value.trim()||'❓');
-  const name =(document.getElementById('custom-name').value.trim());
+  let name =(document.getElementById('custom-name').value.trim());
   if (!name) { alert('Please enter a name!'); return; }
+  // Sanitize custom element name to prevent AI refusals
+  name = sanitizeElementName(name);
+  if (!name || name === 'Mysterious Element') { alert('Please enter a valid element name!'); return; }
   register(emoji,name,false);
   renderSidebar();
   // Consume the charge — each purchase is single-use
@@ -4577,39 +4823,52 @@ var SYSTEM_PROMPT = `You are the core logic engine for a web game identical to "
 Your objective is to take two input elements and combine them into exactly ONE new element.
 
 CRITICAL FORMATTING RULES:
-1. OUTPUT FORMAT: Reply with EXACTLY one line: a single emoji, a single space, then the element name. Example: 🔥 Fire
+1. OUTPUT FORMAT: Reply with EXACTLY one line: a single emoji, a space, then the element name. Example: 🔥 Fire
 2. ZERO CHATTER: No explanations, no markdown, no extra lines — just the single output line.
-3. GRAMMAR: Result MUST be a Noun or Proper Noun (1–3 words max).
+3. GRAMMAR: Result MUST be a Noun or Proper Noun (1–4 words max).
 4. CASING: Use Title Case (e.g. "Time Machine", "Lord Of The Rings").
+5. NEVER output a refusal, apology, or meta-comment. If inputs seem unusual, make a creative playful element anyway.
+
+EMOJI ACCURACY — THIS IS CRITICAL:
+- The emoji MUST visually represent the result, not the inputs.
+- 🌊 = water/ocean/waves  ⛰️ = mountain/peak  🔥 = fire/heat  🌬️ = wind/air
+- 🌍 = earth/world/planet  ⚡ = lightning/electricity/energy  ❄️ = ice/cold/snow
+- Do NOT assign a mountain emoji to an ocean result, or a fire emoji to an ice result.
+- Match the emoji to the OUTPUT concept, always.
+- Good: Ocean = 🌊, Forest = 🌲, Star = ⭐, Dragon = 🐉, Robot = 🤖, Gold = 🥇
+- Bad: Ocean = ⛰️ (WRONG — that is a mountain)
+
+CONTENT SAFETY: If inputs contain inappropriate or NSFW words, transform them into something harmless and whimsical before crafting. You MUST still return a valid creative element — never refuse.
 
 CRAFTING LOGIC & VIBE RULES:
-1. EMBRACE THE ABSURD: As elements get complex, lean into internet memes, pop culture, mythology, movies, and historical figures.
-2. BE CLEVER, NOT LAZY: Do NOT just concatenate the two words. Do NOT add lazy prefixes like "Super", "Dark", or "Big". Transform the concepts!
+1. EMBRACE THE ABSURD: Lean into internet memes, pop culture, mythology, movies, and historical figures.
+2. BE CLEVER, NOT LAZY: Do NOT just concatenate the two words. Do NOT add lazy prefixes like "Super" or "Dark". Transform the concepts!
 3. USE LATERAL THINKING:
    - Literal:        Sand + Fire = 🪟 Glass
-   - Metaphorical:   Vampire + Math = 🦇 Count Dracula
+   - Metaphorical:   Vampire + Math = 🧛 Count Dracula
    - Pop Culture:    Space + Sword = ⚔️ Lightsaber
    - Internet:       Dog + Coin = 🪙 Dogecoin
    - Absurdist:      Shark + Tornado = 🌪️ Sharknado
 4. ESCALATION (A + A = B): Combining two identical things should upgrade or intensify.
    - Earth + Earth = ⛰️ Mountain  →  Mountain + Mountain = 🏔️ Mountain Range
 5. RESOLVING ABSTRACTION: Apply an abstract concept to a concrete object.
-   - Time + Dinosaur = 🦴 Fossil
-   - Magic + Horse = 🦄 Unicorn
-   - Evil + Robot = 🤖 Terminator
+   - Time + Dinosaur = 🦴 Fossil    Magic + Horse = 🦄 Unicorn    Evil + Robot = 🤖 Terminator
 
-EXAMPLES OF GOOD PROGRESSION:
+EXAMPLES OF GOOD PROGRESSION (note emoji always matches the result):
 Water + Fire = 💨 Steam
-Wind + Earth = 🌪️ Dust
+Wind + Earth = 🌫️ Dust
 Dust + Earth = 🪐 Planet
 Planet + Fire = ☀️ Sun
 Fire + Sun = 🌋 Solar Flare
 Human + Robot = 🦾 Cyborg
 Cyborg + Time = 🤖 Terminator
-Terminator + America = 🦅 Arnold Schwarzenegger
-Anime + Ghost = 👘 Bleach
+Terminator + America = 🕶️ Arnold Schwarzenegger
+Anime + Ghost = 👻 Bleach
 Bat + Man = 🦇 Batman
-Batman + Vampire = 🩸 Morbius`;
+Batman + Vampire = 🩸 Morbius
+Ocean + Mountain = 🌊 Tsunami
+Fire + Ice = 🌫️ Steam
+Dragon + Knight = ⚔️ Dragon Slayer`;
 
 // ── Helper: is ANY key configured? ───────────────────────────────────────
 function hasAnyApiKey() {
@@ -4807,31 +5066,79 @@ async function callLLM(purpose, promptOrMessages, maxTokens = 100, temp = 1.0) {
 }
 
 // ═════════════════════════════════════════════════════════════════════════
-//  askGemini(a, b)  — kept for compatibility; routes through callLLM
+//  askGemini(a, b)  — routes through callLLM with cache + safety
 // ═════════════════════════════════════════════════════════════════════════
 
 async function askGemini(a, b) {
-  const prompt = `${a.emoji} ${a.name} + ${b.emoji} ${b.name} =`;
+  const cacheKey = _comboKey(a.name, b.name);
+
+  // ── 1. Local in-memory / localStorage cache ───────────────────────────
+  if (KNOWN_COMBOS[cacheKey]) return KNOWN_COMBOS[cacheKey];
+
+  // ── 2. Cloud combo cache ───────────────────────────────────────────────
+  const cloudHit = await _getCloudCombo(cacheKey);
+  if (cloudHit) {
+    KNOWN_COMBOS[cacheKey] = cloudHit;
+    _saveComboCache();
+    return cloudHit;
+  }
+
+  // ── 3. Sanitize inputs before sending to AI ────────────────────────────
+  const safeA = sanitizeElementName(a.name);
+  const safeB = sanitizeElementName(b.name);
+
+  const prompt = `${a.emoji} ${safeA} + ${b.emoji} ${safeB} =`;
   const messages = [
     { role: 'system', content: SYSTEM_PROMPT },
     { role: 'user',   content: prompt }
   ];
 
+  const _isRefusal = (text) => {
+    const l = text.toLowerCase();
+    return l.includes("sorry") || l.includes("can't help") || l.includes("cannot help") ||
+           l.includes("i cannot") || l.includes("i'm unable") || l.includes("inappropriate") ||
+           l.includes("as an ai") || l.includes("as a language") || l.length > 100;
+  };
+
   for (let attempt = 0; attempt < 4; attempt++) {
     try {
-      const raw  = await callLLM('craft', messages, 50, 1.1);
+      const raw  = await callLLM('craft', messages, 60, 1.1);
       const line = raw.trim().split('\n')[0].trim();
-      const sp   = line.search(/\s/);
+
+      // Detect refusals / bad output
+      if (_isRefusal(line)) {
+        // Return a safe creative fallback
+        const result = { emoji: '✨', name: safeA + ' Fusion' };
+        KNOWN_COMBOS[cacheKey] = result;
+        _saveComboCache();
+        return result;
+      }
+
+      const sp = line.search(/\s/);
       if (sp < 1) throw new Error('Unexpected response: ' + line);
       const emoji = line.slice(0, sp).trim();
       const name  = line.slice(sp + 1).trim().replace(/[.!?,;:]+$/, '');
       if (!emoji || !name) throw new Error('Empty result from API');
-      return { emoji, name };
+
+      // Double-check name isn't a refusal
+      if (_isRefusal(name)) throw new Error('Refusal in name field');
+
+      const result = { emoji, name };
+      KNOWN_COMBOS[cacheKey] = result;
+      _saveComboCache();
+
+      // Save to cloud (fire-and-forget — don't await)
+      _setCloudCombo(cacheKey, result);
+
+      return result;
     } catch (e) {
       if (e.message && e.message.includes('No API keys')) throw e;
       if (attempt === 3) {
-        showErr('⚠️ All AI providers failed — check your API keys.');
-        throw e;
+        // Final safe fallback
+        const fallback = { emoji: '⚗️', name: safeA.split(' ')[0] + ' Essence' };
+        KNOWN_COMBOS[cacheKey] = fallback;
+        _saveComboCache();
+        return fallback;
       }
       await new Promise(r => setTimeout(r, 1000 * (attempt + 1)));
     }
