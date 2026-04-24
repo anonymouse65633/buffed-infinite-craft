@@ -588,7 +588,7 @@ body {
 
 /* ── Level HUD — Circular Ring (CoD style) ── */
 #level-hud {
-  position:fixed; left:12px; top:40px; z-index:20;
+  position:fixed; left:12px; top:32px; z-index:20;
   pointer-events:none; user-select:none;
 }
 #level-ring-wrap {
@@ -694,11 +694,11 @@ body {
 ═══════════════════════════════════════════════════════════════ */
 #global-badge {
   position:fixed; left:6px; top:10px !important;
-  z-index:20; display:flex; align-items:center; gap:6px;
+  z-index:20; display:flex; align-items:center; gap:5px;
   background:var(--sb-bg); border:1px solid var(--border);
-  border-radius:10px; padding:5px 10px; font-size:12px;
+  border-radius:8px; padding:3px 8px; font-size:11px;
   box-shadow:0 2px 8px rgba(0,0,0,0.1); cursor:pointer;
-  transition:background 0.12s, top 0.15s; max-width:160px;
+  transition:background 0.12s, top 0.15s; max-width:130px;
 }
 #global-badge:hover { background:var(--inst-hover); }
 #global-badge .gb-dot { width:7px; height:7px; border-radius:50%; background:#10b981; flex-shrink:0; animation:gbPulse 2s ease-in-out infinite; }
@@ -1268,6 +1268,40 @@ body {
 .lb-live-dot { width:6px; height:6px; border-radius:50%; background:#10b981; animation:gbPulse 2s infinite; display:inline-block; margin-right:4px; }
 .lb-signup-prompt { padding:20px; text-align:center; }
 .lb-signup-prompt p { font-size:13px; opacity:0.6; margin-bottom:10px; }
+
+/* ── Leaderboard Podium ── */
+.lb-podium {
+  display:flex; align-items:flex-end; justify-content:center;
+  gap:6px; padding:12px 8px 0; margin-bottom:4px;
+}
+.podium-slot {
+  display:flex; flex-direction:column; align-items:center;
+  flex:1; max-width:100px;
+  border-radius:10px 10px 0 0;
+  padding:10px 6px 6px;
+  position:relative;
+  background:linear-gradient(180deg,rgba(255,255,255,0.06),rgba(255,255,255,0.02));
+  border:1px solid rgba(255,255,255,0.08);
+}
+.podium-slot.lb-me { border-color:var(--accent); }
+.podium-1 { padding-top:18px; min-height:110px; }
+.podium-2 { min-height:88px; }
+.podium-3 { min-height:70px; }
+.podium-medal { font-size:22px; line-height:1; margin-bottom:4px; }
+.podium-name {
+  font-size:10px; font-weight:700; width:100%; text-align:center;
+  overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+  opacity:0.9; margin-bottom:2px;
+}
+.podium-badge { font-size:13px; line-height:1; margin-bottom:2px; }
+.podium-score { font-size:9px; opacity:0.55; text-align:center; }
+.podium-bar {
+  position:absolute; bottom:0; left:0; right:0;
+  border-radius:0 0 6px 6px; height:4px;
+}
+.podium-1 .podium-bar { background:linear-gradient(90deg,#f59e0b,#fbbf24); }
+.podium-2 .podium-bar { background:linear-gradient(90deg,#94a3b8,#cbd5e1); }
+.podium-3 .podium-bar { background:linear-gradient(90deg,#b45309,#d97706); }
 
 
 /* ═══════════════════════════════════════════════════════════════
