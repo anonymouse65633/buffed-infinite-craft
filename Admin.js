@@ -1680,7 +1680,7 @@ ${profileHtml}
     _saveField, _quickGiveTokens, _confirmClearInventory, _confirmWipeSave,
     _quickGiveItem, _openBanPrompt, _setBadge,
     _dismissViolation, _unban, _issueBan,
-    _sendBroadcast, _lookupDMPlayer, _clearDMTarget, _sendDM,
+    _sendBroadcast, _bcSetAudience,
     _removeLB, _setBadgePrompt,
     _deleteCombo, _addCombo, _comboSearch,
     _revokeFirst, _deleteFeed,
