@@ -296,3 +296,60 @@ const MILESTONES = [
 let milestonesDone = new Set();
 let msProgress = {};
 let totalTokensEarned = 0;
+
+// ─── Firebase Security Rules (documentation) ──────────────────
+// Copy-paste these into Firebase console → Firestore → Rules tab.
+// They lock down the new config/game and player_ranks collections
+// introduced in Part 2 while keeping existing rules intact.
+//
+// rules_version = '2';
+// service cloud.firestore {
+//   match /databases/{database}/documents {
+//
+//     // ── config/game ─────────────────────────────────────────
+//     // Admins (listed in admins map) can write; all authenticated
+//     // users can read (needed for live gameConfig updates).
+//     match /config/game {
+//       allow read:  if request.auth != null;
+//       allow write: if request.auth != null
+//         && get(/databases/$(database)/documents/config/game)
+//             .data.admins[request.auth.uid] == true;
+//     }
+//
+//     // ── player_ranks ─────────────────────────────────────────
+//     // Written exclusively by Cloud Functions / Admin SDK.
+//     // Players may only read their own rank document.
+//     match /player_ranks/{uid} {
+//       allow read:  if request.auth != null && request.auth.uid == uid;
+//       allow write: if false;   // Cloud Functions only
+//     }
+//
+//     // ── saves ────────────────────────────────────────────────
+//     // Each player owns their save doc.
+//     match /saves/{uid} {
+//       allow read, write: if request.auth != null && request.auth.uid == uid;
+//     }
+//
+//     // ── accounts ─────────────────────────────────────────────
+//     // Public username registry — read by all authenticated users
+//     // (needed for Google sign-in lookup), written only on creation.
+//     match /accounts/{username} {
+//       allow read:   if request.auth != null;
+//       allow create: if request.auth != null;
+//       allow update, delete: if false;
+//     }
+//
+//     // ── leaderboard ──────────────────────────────────────────
+//     // Authenticated players read all; each player writes their own slot.
+//     match /leaderboard/{uid} {
+//       allow read:  if request.auth != null;
+//       allow write: if request.auth != null && request.auth.uid == uid;
+//     }
+//
+//     // ── global_firsts ────────────────────────────────────────
+//     match /global_firsts/{element} {
+//       allow read:  if request.auth != null;
+//       allow write: if request.auth != null;
+//     }
+//   }
+// }
