@@ -624,6 +624,11 @@ function findOverlap(a) {
 // ─────────────────────────────────────────────────────────────
 async function combine(a, b, autoMode=false) {
   if (busy) return;
+  // ── Maintenance mode gate ──────────────────────────────────
+  if (gameConfig && gameConfig.maintenance) {
+    showErr('🔧 Server under maintenance — crafting is paused. Check back soon!');
+    return;
+  }
   busy=true;
   a.el.classList.add('disabled'); b.el.classList.add('disabled');
   const sa=addSpinner(a.el), sb2=addSpinner(b.el);
@@ -711,6 +716,8 @@ function gainXP(amount) {
   if (boosterActive('xp_pot')) mult *= 2;
   if (boosterActive('eureka')) mult *= 3;
   if (owned['pet_slime']) mult *= (owned['pet_upgrade_slime'] ? 1.10 : 1.05); // Slime pet XP
+  // Live admin config multiplier
+  if (gameConfig && gameConfig.xpMultiplier > 0) mult *= gameConfig.xpMultiplier;
   amount = Math.floor(amount * mult);
   xp += amount;
   // Level up check
@@ -731,6 +738,8 @@ function gainTokens(amount, isFirst) {
   if (owned['prestige_aura']) mult *= 1.5;  // Prestige Aura: +50%
   if (owned['element_sense'] && isFirst) amount += 10; // Element Sense: +10 on discovery
   if (petRobotBoostActive) mult *= 2;  // Robot pet discovery burst: 2×
+  // Live admin config multiplier
+  if (gameConfig && gameConfig.tokenMultiplier > 0) mult *= gameConfig.tokenMultiplier;
   amount = Math.floor(amount * mult);
   tokens += amount;
   totalTokensEarned += amount;
@@ -804,16 +813,24 @@ function renderShop() {
       const prestMet = prestige>=def.prestige;
       const locked   = !lvlMet || !needsMet || !prestMet;
 
+      // Effective cost factoring in admin discount + token_saver
+      const _disc = Math.min(0.9,
+        ((gameConfig && gameConfig.shopDiscount > 0) ? gameConfig.shopDiscount : 0) +
+        (owned['token_saver'] ? 0.15 : 0)
+      );
+      const effCost = Math.max(1, Math.floor(def.cost * (1 - _disc)));
+      const discountLabel = _disc > 0 ? ` <span style="font-size:10px;color:#4ade80">(${Math.round(_disc*100)}% off)</span>` : '';
+
       // Custom element is one-shot per purchase — pending charge opens modal, never "owned"
       const isCustomPending = (id==='custom' && cnt>0);
       const div=document.createElement('div');
-      const cantAfford = tokens < def.cost && !(isOwned && def.max===1) && !locked;
+      const cantAfford = tokens < effCost && !(isOwned && def.max===1) && !locked;
       div.className='shop-item'+(isOwned&&def.max===1?' owned':(locked?' locked':(cantAfford?' cant-afford':'')));
       const activeNote = boosterActive(id) ? `<div class="shop-item-own">⏳ Active!</div>` : '';
       div.innerHTML=`
         <div class="shop-item-header">
           <div class="shop-item-name">${def.icon} ${def.name}${def.prestige>0?`<span class="prestige-tag ${def.prestige>=10?'gold':'purple'}">P${def.prestige}${def.prestige>=10?' MAX':''}</span>`:''}  </div>
-          <div class="shop-item-cost">${isOwned&&def.max===1?'✓ Owned':isCustomPending?'🧪 Ready':'🪙 '+def.cost}  </div>
+          <div class="shop-item-cost">${isOwned&&def.max===1?'✓ Owned':isCustomPending?'🧪 Ready':'🪙 '+effCost+discountLabel}  </div>
         </div>
         <div class="shop-item-desc">${def.desc}</div>
         ${!lvlMet?`<div class="shop-item-req">🔒 Requires Level ${def.lvl}</div>`:''}
@@ -821,7 +838,7 @@ function renderShop() {
         ${!needsMet?`<div class="shop-item-req">Requires ${SHOP.find(s=>s.id===def.needs)?.name||def.needs}</div>`:''}
         ${isOwned&&def.max===1?`<div class="shop-item-own">✓ Owned</div>`:''}
         ${isCustomPending?`<div class="shop-item-own" style="color:#4f46e5">🧪 1 charge ready — click to use!</div>`:''}
-        ${cantAfford && !isOwned && !locked ? `<div class="shop-item-cant-afford-note">⚠️ Need ${(def.cost-tokens).toLocaleString()} more 🪙</div>` : ''}
+        ${cantAfford && !isOwned && !locked ? `<div class="shop-item-cant-afford-note">⚠️ Need ${(effCost-tokens).toLocaleString()} more 🪙</div>` : ''}
         ${activeNote}
       `;
       if (!locked && !(isOwned&&def.max===1)) {
@@ -866,6 +883,32 @@ function renderShop() {
       if (!locked && !(isOwned&&def.max===1)) div.addEventListener('click', ()=>buyShopItem(id));
       shopInner.appendChild(div);
     });
+  }
+
+  // ── Admin Config Panel (visible to admins only) ──────────────
+  if (typeof _hasAdminRole === 'function' && _hasAdminRole()) {
+    const adminH = document.createElement('div');
+    adminH.className = 'shop-sec-title';
+    adminH.style.cssText = 'color:#ef4444;border-color:#ef4444';
+    adminH.textContent = '🔴 Admin — Live Config';
+    shopInner.appendChild(adminH);
+
+    const cfg = gameConfig || {};
+    const disc = cfg.shopDiscount > 0 ? Math.round(cfg.shopDiscount * 100) + '%' : 'none';
+    const adminCard = document.createElement('div');
+    adminCard.className = 'shop-item';
+    adminCard.style.borderColor = '#ef4444';
+    adminCard.innerHTML = `
+      <div style="font-size:12px;line-height:2;opacity:0.9">
+        <b>XP Multiplier:</b> ×${cfg.xpMultiplier > 0 ? cfg.xpMultiplier : 1}<br>
+        <b>Token Multiplier:</b> ×${cfg.tokenMultiplier > 0 ? cfg.tokenMultiplier : 1}<br>
+        <b>Shop Discount:</b> ${disc}<br>
+        <b>Maintenance Mode:</b> ${cfg.maintenance ? '🔴 ON' : '🟢 OFF'}<br>
+        <b>MOTD:</b> ${cfg.motd ? cfg.motd : '<span style="opacity:0.4">(none)</span>'}
+      </div>
+      <div style="margin-top:8px;font-size:11px;opacity:0.45">Edit via the Admin panel → Config tab.</div>
+    `;
+    shopInner.appendChild(adminCard);
   }
 }
 
@@ -939,12 +982,20 @@ function buyShopItem(id) {
   const def=SHOP.find(s=>s.id===id);
   if (!def) return;
   if ((owned[id]||0)>=def.max) return;
-  if (tokens<def.cost) { showErr('Not enough tokens! Need 🪙'+def.cost); return; }
+
+  // Effective cost — admin shopDiscount (0–0.9) stacks on top of token_saver perk
+  const _disc = Math.min(0.9,
+    ((gameConfig && gameConfig.shopDiscount > 0) ? gameConfig.shopDiscount : 0) +
+    (owned['token_saver'] ? 0.15 : 0)
+  );
+  const effectiveCost = Math.max(1, Math.floor(def.cost * (1 - _disc)));
+
+  if (tokens<effectiveCost) { showErr('Not enough tokens! Need 🪙'+effectiveCost); return; }
   if (level<def.lvl) { showErr(`Need Level ${def.lvl} to buy this`); return; }
   if (def.prestige > prestige) { showErr(`Need Prestige ${def.prestige} for this!`); return; }
   if (def.needs&&!(owned[def.needs]>0)) { showErr('Buy the required upgrade first!'); return; }
 
-  tokens-=def.cost; totalSpent+=def.cost;
+  tokens-=effectiveCost; totalSpent+=effectiveCost;
   owned[id]=(owned[id]||0)+1;
 
   // Special handlers
