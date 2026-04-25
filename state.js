@@ -88,6 +88,12 @@ const TEXT_THEMES = [
 let activeTextTheme = 'default';
 let unlockedTextThemes = new Set(['default']);
 
+// ─── Leaderboard Personalisation ─────────────────────────────
+// lbPrivate: when true, hides this player's profile from click-to-view modals
+let lbPrivate    = localStorage.getItem('ic_lb_private') === '1';
+// lbTextColor: the TEXT_THEMES id to use for the player's leaderboard name colour
+let lbTextColor  = localStorage.getItem('ic_lb_text_color') || 'default';
+
 // Cosmetic unlocks (from level rewards)
 let activePic       = '⚗️';   // currently equipped profile picture
 let unlockedPics    = new Set(['⚗️']); // default unlocked
@@ -209,3 +215,12 @@ let zoom = 1, panX = 0, panY = 0;
 
 // Auto crafter
 let autoCraftTimer = null;
+
+// ─── Game Config (live from Firestore config/game) ────────────
+// Populated by _loadGameConfig() in auth.js via real-time onSnapshot.
+// Shape: { xpMultiplier, tokenMultiplier, shopDiscount, maintenance, motd, admins:{uid:true} }
+let gameConfig        = {};
+
+// ─── Player Rank ──────────────────────────────────────────────
+// Fetched once on login from player_ranks/{uid} and refreshed after lb push.
+let currentPlayerRank = null;
