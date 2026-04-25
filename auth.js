@@ -260,6 +260,10 @@ async function _onAuthSuccess(firebaseUser, username, isNew) {
     setTimeout(() => ADMIN.init(), 2000);
   }
 
+  // ── Live game config + player rank ───────────────────────────
+  _loadGameConfig();
+  setTimeout(() => _loadPlayerRank(AUTH_UID), 1500);
+
   // Auto-enrol in leaderboard — no manual join needed
   lbSignedUp = true;
   localStorage.setItem('ic_lb_signed_up', '1');
@@ -359,6 +363,103 @@ window.addEventListener('beforeunload', ()=>{
 });
 
 // ═══════════════════════════════════════════════════════════════════════
+//  GAME CONFIG — real-time Firestore listener (config/game)
+// ═══════════════════════════════════════════════════════════════════════
+
+var _gameConfigListener = null;  // unsubscribe handle
+var _lastMotd           = '';    // debounce MOTD toasts
+
+/** True when the signed-in user has an admin entry in config/game.admins. */
+function _hasAdminRole() {
+  if (!AUTH_UID) return false;
+  return !!(gameConfig && gameConfig.admins && gameConfig.admins[AUTH_UID]);
+}
+
+/** Show a dismissible MOTD banner (deduped — same message only shows once per session). */
+function _showMotd(motd) {
+  if (!motd || motd === _lastMotd) return;
+  _lastMotd = motd;
+  const existing = document.getElementById('motd-banner');
+  if (existing) existing.remove();
+  const banner = document.createElement('div');
+  banner.id = 'motd-banner';
+  banner.style.cssText = [
+    'position:fixed', 'top:64px', 'left:50%', 'transform:translateX(-50%)',
+    'z-index:9999', 'background:#1e293b', 'color:#f8fafc',
+    'padding:10px 20px', 'border-radius:10px',
+    'box-shadow:0 4px 24px #0008', 'font-size:14px',
+    'max-width:440px', 'text-align:center',
+    'border:1px solid #334155', 'cursor:pointer', 'line-height:1.5'
+  ].join(';');
+  banner.innerHTML = `📢 <b>Message from Admin:</b><br>${motd}
+    <span style="opacity:0.45;font-size:11px;display:block;margin-top:4px">click to dismiss</span>`;
+  banner.onclick = () => banner.remove();
+  document.body.appendChild(banner);
+  setTimeout(() => { if (banner.parentNode) banner.remove(); }, 15000);
+}
+
+/**
+ * Subscribe to config/game in real-time.
+ * Populates the global `gameConfig`, drives the maintenance banner, and shows MOTD.
+ * Safe to call multiple times — tears down the previous listener first.
+ */
+function _loadGameConfig() {
+  if (!_fbReady() || !window._db) return;
+  if (_gameConfigListener) { try { _gameConfigListener(); } catch(e){} _gameConfigListener = null; }
+
+  _gameConfigListener = window._db.collection('config').doc('game')
+    .onSnapshot(snap => {
+      gameConfig = snap.exists ? (snap.data() || {}) : {};
+
+      // ── Maintenance banner ──────────────────────────────────
+      const existing = document.getElementById('maintenance-banner');
+      if (gameConfig.maintenance) {
+        if (!existing) {
+          const b = document.createElement('div');
+          b.id = 'maintenance-banner';
+          b.style.cssText = [
+            'position:fixed', 'top:0', 'left:0', 'right:0',
+            'z-index:99999', 'background:#dc2626', 'color:#fff',
+            'text-align:center', 'padding:8px 12px',
+            'font-weight:700', 'font-size:14px', 'letter-spacing:0.02em'
+          ].join(';');
+          b.textContent = '🔧 Server Maintenance in Progress — Crafting is temporarily paused.';
+          document.body.appendChild(b);
+        }
+      } else {
+        if (existing) existing.remove();
+      }
+
+      // ── MOTD ────────────────────────────────────────────────
+      if (gameConfig.motd) _showMotd(gameConfig.motd);
+
+      // Re-render shop if open so discount/config changes show immediately
+      if (typeof currentTab !== 'undefined' && currentTab === 'shop' && typeof renderShop === 'function') {
+        renderShop();
+      }
+
+      console.log('[Auth] gameConfig updated:', gameConfig);
+    }, err => {
+      console.warn('[Auth] gameConfig listener error:', err);
+    });
+}
+
+/**
+ * Fetch this player's leaderboard rank from player_ranks/{uid}.
+ * Non-blocking — safe to fire-and-forget.
+ */
+async function _loadPlayerRank(uid) {
+  if (!_fbReady() || !uid || !window._db) return;
+  try {
+    const doc = await window._db.collection('player_ranks').doc(uid).get();
+    currentPlayerRank = doc.exists ? (doc.data().rank || null) : null;
+    if (typeof updateRankHUD === 'function') updateRankHUD();
+  } catch(e) {
+    console.warn('[Auth] _loadPlayerRank failed:', e);
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
 //  INIT
 // ═══════════════════════════════════════════════════════════════════════
 
@@ -391,6 +492,8 @@ async function authInit() {
       initGame();
       updateAuthUI();
       if (typeof ADMIN !== 'undefined' && ADMIN.init) setTimeout(() => ADMIN.init(), 2000);
+      _loadGameConfig();
+      setTimeout(() => _loadPlayerRank(AUTH_UID), 1500);
     } else {
       AUTH_USER=null; AUTH_UID=null;
       showAuthOverlay();
