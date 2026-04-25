@@ -46,6 +46,10 @@ var lbSessionStart = Date.now();
 var lbTimePlayed   = parseInt(localStorage.getItem('ic_time_played') || '0');
 var lbMyRank       = null;
 
+// ── Profile fetch cache (60 s TTL to protect DB read quotas) ─────────────
+var _profileCache  = {};   // uid → { data, rank, fetchedAt }
+var _PROFILE_TTL   = 60000; // 60 seconds
+
 const LB_CATEGORIES = {
   crafts:      { label:'⚗️ Crafts',      field:'totalCrafts',      format: n => n.toLocaleString()+' crafts'   },
   discoveries: { label:'✨ Discoveries', field:'firstDiscoveries', format: n => n.toLocaleString()+' firsts'   },
@@ -110,6 +114,8 @@ async function pushLeaderboardStats() {
       level:            level,
       badges:           badges,
       featuredBadge:    feat,
+      lbPrivate:        typeof lbPrivate !== 'undefined' ? lbPrivate : false,
+      lbTextColor:      typeof lbTextColor !== 'undefined' ? lbTextColor : 'default',
       lastSeen:         firebase.firestore.FieldValue.serverTimestamp(),
     }, { merge: true });
   } catch(e) { console.warn('pushLeaderboardStats failed:', e); }
@@ -254,10 +260,47 @@ function renderAccountTab() {
         <span>✨ ${firstDiscs.length} discoveries</span>
         <span>🪙 ${totalTokensEarned.toLocaleString()} tokens</span>
       </div>
-      <button class="acct-btn secondary" style="margin-top:10px;font-size:12px" onclick="pushLeaderboardStats().then(()=>showTokenToast('Stats synced!'))">🔄 Sync Stats</button>`;
+      <div style="margin-top:10px;display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+        <button class="acct-btn secondary" style="font-size:12px" onclick="pushLeaderboardStats().then(()=>showTokenToast('Stats synced!'))">🔄 Sync Stats</button>
+        <label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer;user-select:none">
+          <input type="checkbox" ${lbPrivate?'checked':''} onchange="toggleLbPrivate(this.checked)" style="cursor:pointer">
+          🔒 Private profile
+        </label>
+      </div>`;
   }
 
-  // Render badges
+  // Text colour swatches (only unlocked themes shown)
+  const colorSection = document.getElementById('acct-lb-colors');
+  if (colorSection) {
+    const unlocked = TEXT_THEMES.filter(t =>
+      unlockedTextThemes.has(t.id) || t.reqLevel <= level && t.reqPrestige <= prestige
+    );
+    colorSection.innerHTML = `
+      <div class="acct-section-title" style="margin-top:12px">🎨 Leaderboard Name Colour</div>
+      <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:6px">
+        ${unlocked.map(t => `
+          <span title="${t.name}" onclick="setLbTextColor('${t.id}')"
+            style="width:22px;height:22px;border-radius:50%;cursor:pointer;
+                   background:${t.swatch==='rainbow'?'linear-gradient(135deg,#f00,#ff0,#0f0,#0ff,#00f,#f0f,#f00)':t.swatch};
+                   border:2px solid ${lbTextColor===t.id?'#fff':'transparent'};
+                   box-shadow:${lbTextColor===t.id?'0 0 0 1px var(--accent)':'none'};
+                   transition:all .15s" class="lb-swatch"></span>
+        `).join('')}
+      </div>`;
+  } else {
+    // Inject the section if not yet in DOM
+    const profileEl = document.getElementById('acct-profile-section');
+    if (profileEl) {
+      const div = document.createElement('div');
+      div.id = 'acct-lb-colors';
+      profileEl.parentNode.insertBefore(div, profileEl.nextSibling);
+      // recurse once
+      renderAccountTab();
+      return;
+    }
+  }
+
+  // Render badges (keep existing logic below intact)
   const earned = computeEarnedBadges();
   const featEl = document.getElementById('acct-featured-badge');
   const gridEl = document.getElementById('acct-badges-grid');
@@ -364,8 +407,9 @@ function _renderLBRows(docs, cat, catInfo) {
       if (isMe && myRank === null) myRank = rank;
       const score = doc[catInfo.field] ?? 0;
       const featBadge = doc.featuredBadge ? (BADGE_DEFS.find(b=>b.id===doc.featuredBadge)||null) : null;
-      html += `<div class="podium-slot podium-${rank}${isMe?' lb-me':''}">
-        <div class="podium-name" title="${doc.name||'???' }">${doc.name||'???'}</div>
+      const nameColor = _lbNameStyle(doc.lbTextColor);
+      html += `<div class="podium-slot podium-${rank}${isMe?' lb-me':''}" style="cursor:pointer" onclick="openPlayerProfile('${doc.id}','${(doc.name||'???').replace(/'/g,"\\'")}')">
+        <div class="podium-name" title="${doc.name||'???' }" style="${nameColor}">${doc.name||'???'}</div>
         ${featBadge ? `<div class="podium-badge">${featBadge.icon}</div>` : ''}
         <div class="podium-medal">${medals[rank-1]}</div>
         <div class="podium-score">${catInfo.format(score)}</div>
@@ -387,9 +431,10 @@ function _renderLBRows(docs, cat, catInfo) {
     const score = doc[catInfo.field] ?? 0;
     const featBadge = doc.featuredBadge ? (BADGE_DEFS.find(b=>b.id===doc.featuredBadge)||null) : null;
     const badgeHtml = featBadge ? `<span title="${featBadge.desc}">${featBadge.icon}</span>` : '';
-    html += `<div class="lb-row${isMe?' lb-me':''}">
+    const nameColor = _lbNameStyle(doc.lbTextColor);
+    html += `<div class="lb-row${isMe?' lb-me':''}" style="cursor:pointer" onclick="openPlayerProfile('${doc.id}','${(doc.name||'???').replace(/'/g,"\\'")}')">
       <span class="lb-rank">${rank}</span>
-      <span class="lb-name">${doc.name||'???'}</span>
+      <span class="lb-name" style="${nameColor}">${doc.name||'???'}</span>
       <span class="lb-badge">${badgeHtml}</span>
       <span class="lb-score">${catInfo.format(score)}</span>
     </div>`;
@@ -536,3 +581,209 @@ async function askGemini(a, b) {
     }
   }
 }
+
+// ═══════════════════════════════════════════════════════════════════════
+//  PLAYER PROFILE MODAL  —  click any leaderboard row to view a profile
+// ═══════════════════════════════════════════════════════════════════════
+
+// ── Name colour helper ─────────────────────────────────────────────────
+function _lbNameStyle(colorId) {
+  if (!colorId || colorId === 'default') return '';
+  const theme = (typeof TEXT_THEMES !== 'undefined')
+    ? TEXT_THEMES.find(t => t.id === colorId) : null;
+  if (!theme) return '';
+  if (theme.swatch === 'rainbow') {
+    return 'background:linear-gradient(90deg,#f00,#ff0,#0f0,#0ff,#00f,#f0f);' +
+           '-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;';
+  }
+  return `color:${theme.swatch};`;
+}
+
+// ── Privacy / colour helpers (called from account tab) ─────────────────
+function toggleLbPrivate(val) {
+  lbPrivate = !!val;
+  localStorage.setItem('ic_lb_private', lbPrivate ? '1' : '0');
+  pushLeaderboardStats();
+  showTokenToast(lbPrivate ? '🔒 Profile hidden' : '🔓 Profile visible');
+}
+
+function setLbTextColor(colorId) {
+  lbTextColor = colorId;
+  localStorage.setItem('ic_lb_text_color', colorId);
+  pushLeaderboardStats();
+  renderAccountTab();
+  showTokenToast('🎨 Leaderboard colour updated!');
+}
+
+// ── 60-second cached profile fetch ─────────────────────────────────────
+async function _fetchPlayerProfile(uid) {
+  const cached = _profileCache[uid];
+  if (cached && (Date.now() - cached.fetchedAt) < _PROFILE_TTL) {
+    return cached;
+  }
+  const db = window._db || _db || null;
+  if (!db || !uid) return null;
+  try {
+    const [saveDoc, lbDoc, rankDoc] = await Promise.all([
+      db.collection('saves').doc(uid).get().catch(() => null),
+      db.collection('leaderboard').doc(uid).get().catch(() => null),
+      db.collection('player_ranks').doc(uid).get().catch(() => null),
+    ]);
+    const result = {
+      save:      saveDoc?.exists  ? saveDoc.data()  : null,
+      lb:        lbDoc?.exists    ? lbDoc.data()    : null,
+      rank:      rankDoc?.exists  ? rankDoc.data()  : null,
+      fetchedAt: Date.now(),
+    };
+    _profileCache[uid] = result;
+    return result;
+  } catch(e) { return null; }
+}
+
+// ── Inject modal CSS once ───────────────────────────────────────────────
+function _injectProfileModal() {
+  if (document.getElementById('lb-profile-modal')) return;
+
+  // CSS
+  if (!document.getElementById('lb-profile-css')) {
+    const s = document.createElement('style');
+    s.id = 'lb-profile-css';
+    s.textContent = `
+#lb-profile-backdrop {
+  position:fixed;inset:0;z-index:88888;background:rgba(0,0,0,.55);
+  display:flex;align-items:center;justify-content:center;
+  animation:lbFadeIn .15s ease;
+}
+@keyframes lbFadeIn { from{opacity:0} to{opacity:1} }
+#lb-profile-card {
+  background:var(--sb-bg,#1e2028);color:var(--text,#f0f0f0);
+  border:1px solid var(--border,rgba(255,255,255,.1));
+  border-radius:16px;padding:24px;width:min(380px,92vw);
+  box-shadow:0 8px 40px rgba(0,0,0,.5);
+  animation:lbSlideUp .2s ease;position:relative;
+}
+@keyframes lbSlideUp { from{transform:translateY(12px);opacity:0} to{transform:translateY(0);opacity:1} }
+#lb-profile-close {
+  position:absolute;top:14px;right:14px;background:none;border:none;
+  font-size:18px;cursor:pointer;color:var(--text);opacity:.5;line-height:1;
+}
+#lb-profile-close:hover{opacity:1}
+.lbp-avatar { font-size:36px;margin-bottom:6px; }
+.lbp-name   { font-size:20px;font-weight:700;margin-bottom:2px; }
+.lbp-rank-pill {
+  display:inline-flex;align-items:center;gap:4px;
+  border-radius:20px;padding:2px 10px;font-size:12px;font-weight:700;
+  border:1px solid currentColor;margin-bottom:10px;
+}
+.lbp-private { opacity:.45;font-size:13px;text-align:center;padding:16px 0; }
+.lbp-stat-grid {
+  display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:10px 0;
+}
+.lbp-stat { background:rgba(128,128,128,.08);border-radius:10px;padding:10px 12px; }
+.lbp-stat-val { font-size:18px;font-weight:700; }
+.lbp-stat-lbl { font-size:11px;opacity:.5;margin-top:2px; }
+.lbp-badges { display:flex;flex-wrap:wrap;gap:6px;margin-top:8px; }
+.lbp-badge-pill {
+  background:rgba(128,128,128,.1);border-radius:20px;
+  padding:3px 9px;font-size:12px;border:1px solid rgba(128,128,128,.2);
+}
+    `;
+    document.head.appendChild(s);
+  }
+
+  // Modal DOM
+  const backdrop = document.createElement('div');
+  backdrop.id = 'lb-profile-backdrop';
+  backdrop.onclick = function(e) { if (e.target === backdrop) closePlayerProfile(); };
+  backdrop.innerHTML = `
+<div id="lb-profile-card">
+  <button id="lb-profile-close" onclick="closePlayerProfile()">✕</button>
+  <div id="lb-profile-inner" style="text-align:center">
+    <div style="opacity:.4;padding:20px">⏳ Loading…</div>
+  </div>
+</div>`;
+  document.body.appendChild(backdrop);
+}
+
+// ── Open profile ────────────────────────────────────────────────────────
+async function openPlayerProfile(uid, displayName) {
+  _injectProfileModal();
+  const inner = document.getElementById('lb-profile-inner');
+  if (inner) inner.innerHTML = '<div style="opacity:.4;padding:20px">⏳ Loading…</div>';
+
+  const profile = await _fetchPlayerProfile(uid);
+  if (!inner) return;
+
+  // Privacy check
+  const lb = profile?.lb || {};
+  if (lb.lbPrivate && uid !== _getLbPlayerId()) {
+    inner.innerHTML = `
+      <div class="lbp-avatar">🔒</div>
+      <div class="lbp-name">${displayName}</div>
+      <div class="lbp-private">This player has set their profile to private.</div>`;
+    return;
+  }
+
+  const save  = profile?.save || {};
+  const rank  = profile?.rank || null;
+  const badges = (lb.badges || []);
+  const badgeDefs = badges
+    .map(id => BADGE_DEFS.find(b => b.id === id))
+    .filter(Boolean)
+    .slice(0, 12);
+
+  const rankPill = rank
+    ? `<div class="lbp-rank-pill" style="color:${rank.rankColor};border-color:${rank.rankColor};background:${rank.rankColor}22">
+         ${rank.rankEmoji} ${rank.rankName}
+       </div>`
+    : '';
+
+  const nameColor = _lbNameStyle(lb.lbTextColor);
+  const timePlayed = lb.timePlayed || save.timePlayed || 0;
+  const h = Math.floor(timePlayed / 3600);
+  const m = Math.floor((timePlayed % 3600) / 60);
+  const timeStr = h > 0 ? `${h}h ${m}m` : `${m}m`;
+
+  const featBadge = lb.featuredBadge
+    ? BADGE_DEFS.find(b => b.id === lb.featuredBadge) : null;
+
+  inner.innerHTML = `
+    <div class="lbp-avatar">${save.activePic || lb.activePic || '⚗️'}</div>
+    <div class="lbp-name" style="${nameColor}">${displayName}</div>
+    ${featBadge ? `<div style="font-size:22px;margin-bottom:4px" title="${featBadge.desc}">${featBadge.icon} ${featBadge.name}</div>` : ''}
+    ${rankPill}
+    <div class="lbp-stat-grid">
+      <div class="lbp-stat">
+        <div class="lbp-stat-val">${(lb.totalCrafts||0).toLocaleString()}</div>
+        <div class="lbp-stat-lbl">⚗️ Crafts</div>
+      </div>
+      <div class="lbp-stat">
+        <div class="lbp-stat-val">${(lb.firstDiscoveries||0).toLocaleString()}</div>
+        <div class="lbp-stat-lbl">✨ Discoveries</div>
+      </div>
+      <div class="lbp-stat">
+        <div class="lbp-stat-val">Lv ${lb.level||1}</div>
+        <div class="lbp-stat-lbl">📈 Level · P${lb.prestige||0}</div>
+      </div>
+      <div class="lbp-stat">
+        <div class="lbp-stat-val">${timeStr}</div>
+        <div class="lbp-stat-lbl">⏱️ Time Played</div>
+      </div>
+    </div>
+    ${badgeDefs.length ? `
+      <div style="font-size:12px;opacity:.5;text-align:left;margin-top:8px;margin-bottom:4px;font-weight:700">BADGES</div>
+      <div class="lbp-badges">
+        ${badgeDefs.map(b=>`<span class="lbp-badge-pill" title="${b.desc}">${b.icon} ${b.name}</span>`).join('')}
+      </div>` : ''}
+  `;
+}
+
+function closePlayerProfile() {
+  const el = document.getElementById('lb-profile-backdrop');
+  if (el) el.remove();
+}
+
+// Close on Escape key
+document.addEventListener('keydown', function(e) {
+  if (e.key === 'Escape') closePlayerProfile();
+});
