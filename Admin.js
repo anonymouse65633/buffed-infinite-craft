@@ -435,10 +435,16 @@ const ADMIN = (() => {
       'RuneSmith','ShadowLab','TitanForge','UltraMix','VoidWalker','WraithCraft',
       'XenonLab','YggdrasilMage','ZenithCraft'];
     const mult = statLevel === 'low' ? 1 : statLevel === 'high' ? 50 : 10;
+    // Write leaderboard entries only — accounts writes are blocked by security
+    // rules because fake UIDs don't match request.auth.uid
+    const usedNames = new Set();
     const batch = db.batch();
     for (let i = 0; i < Math.min(count, 50); i++) {
       const uid = 'fake_' + Date.now() + '_' + i;
-      const name = (names[i % names.length] || 'FakePlayer') + Math.floor(Math.random()*900+100);
+      let name;
+      do { name = (names[i % names.length] || 'FakePlayer') + Math.floor(Math.random()*900+100); }
+      while (usedNames.has(name));
+      usedNames.add(name);
       const crafts = Math.floor(Math.random() * 1000 * mult);
       batch.set(db.collection('leaderboard').doc(uid), {
         name, uid, isFake: true,
@@ -450,10 +456,6 @@ const ADMIN = (() => {
         level: Math.floor(Math.random() * 100 * mult * 0.1 + 1),
         badges: [], featuredBadge: null,
         lastSeen: firebase.firestore.FieldValue.serverTimestamp()
-      });
-      batch.set(db.collection('accounts').doc(name.toLowerCase()), {
-        displayName: name, uid, isFake: true,
-        createdAt: firebase.firestore.FieldValue.serverTimestamp()
       });
     }
     await batch.commit();
@@ -618,7 +620,16 @@ const ADMIN = (() => {
   cursor:pointer; font-family:inherit; font-weight:600;
   transition:opacity 0.15s; white-space:nowrap;
 }
-.admin-btn:hover { opacity:0.85; }
+.admin-btn:hover { opacity:0.85; transform:translateY(-1px); }
+.admin-btn:active { transform:translateY(0) scale(0.97); opacity:1; transition:transform 0.07s; }
+.admin-btn:disabled { opacity:0.4; cursor:not-allowed; transform:none !important; }
+@keyframes _adminSpin { to { transform:rotate(360deg); } }
+@keyframes _adminRipple {
+  0%   { box-shadow:0 0 0 0 rgba(255,255,255,0.45); }
+  70%  { box-shadow:0 0 0 8px rgba(255,255,255,0); }
+  100% { box-shadow:0 0 0 0 rgba(255,255,255,0); }
+}
+.admin-btn._clicked { animation:_adminRipple 0.4s ease-out; }
 .admin-btn.danger  { background:#ef4444; }
 .admin-btn.warn    { background:#f59e0b; }
 .admin-btn.success { background:#10b981; }
@@ -796,6 +807,15 @@ const ADMIN = (() => {
 </div>
     `;
     document.body.appendChild(el);
+    // Global click feedback — adds ripple class to any .admin-btn on click
+    el.addEventListener('click', e => {
+      const btn = e.target.closest('.admin-btn');
+      if (!btn || btn.disabled) return;
+      btn.classList.remove('_clicked');
+      void btn.offsetWidth; // force reflow to restart animation
+      btn.classList.add('_clicked');
+      btn.addEventListener('animationend', () => btn.classList.remove('_clicked'), { once: true });
+    });
   }
 
   // ─── Tab rendering ───────────────────────────────────────────────────
@@ -2042,20 +2062,20 @@ ${convoHtml}
         <option value="mid" selected>Medium stats</option>
         <option value="high">High stats (veterans)</option>
       </select>
-      <button class="admin-btn success sm" onclick="ADMIN._addFakePlayers()">➕ Add Fake Players</button>
+      <button class="admin-btn success sm" onclick="ADMIN._addFakePlayers(this)">➕ Add Fake Players</button>
     </div>
   </div>
 
   <div class="debug-card">
     <div class="debug-card-title">🗑️ Remove Fake Players</div>
     <div class="debug-card-desc">Removes ALL fake players (marked with isFake:true) from leaderboard and accounts.</div>
-    <button class="admin-btn danger sm" onclick="ADMIN._removeFakePlayers()">🗑️ Remove All Fake Players</button>
+    <button class="admin-btn danger sm" onclick="ADMIN._removeFakePlayers(this)">🗑️ Remove All Fake Players</button>
   </div>
 
   <div class="debug-card">
     <div class="debug-card-title">📤 Export All Data</div>
     <div class="debug-card-desc">Downloads all game data as JSON (accounts, saves, leaderboard, bans, violations).</div>
-    <button class="admin-btn sm ghost" onclick="ADMIN._exportAllData()">📥 Export JSON</button>
+    <button class="admin-btn sm ghost" onclick="ADMIN._exportAllData(this)">📥 Export JSON</button>
   </div>
 
   <div class="debug-card">
@@ -2120,13 +2140,30 @@ ${convoHtml}
 </div>`;
   }
 
-  function _addFakePlayers() {
+  // ─── Button loading helper ─────────────────────────────────────────────
+  // Disables btn, swaps its text for a spinner + label, then restores it.
+  async function _withBtnLoading(btn, loadingLabel, asyncFn) {
+    if (!btn || btn.disabled) return;
+    const orig = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = `<span style="display:inline-flex;align-items:center;gap:5px"><span style="display:inline-block;width:12px;height:12px;border:2px solid rgba(255,255,255,0.3);border-top-color:#fff;border-radius:50%;animation:_adminSpin 0.6s linear infinite"></span>${loadingLabel}</span>`;
+    try { await asyncFn(); } finally { btn.disabled = false; btn.innerHTML = orig; }
+  }
+
+  function _addFakePlayers(btn) {
     const count = parseInt(document.getElementById('fake-count')?.value||'10');
     const level = document.getElementById('fake-stat-level')?.value || 'mid';
-    addFakePlayers(count, level);
+    const b = (btn instanceof HTMLElement) ? btn : document.querySelector('[onclick*="_addFakePlayers"]');
+    _withBtnLoading(b, 'Adding…', () => addFakePlayers(count, level));
   }
-  function _removeFakePlayers() { removeFakePlayers(); }
-  function _exportAllData() { exportAllData(); }
+  function _removeFakePlayers(btn) {
+    const b = (btn instanceof HTMLElement) ? btn : document.querySelector('[onclick*="_removeFakePlayers"]');
+    _withBtnLoading(b, 'Removing…', () => removeFakePlayers());
+  }
+  function _exportAllData(btn) {
+    const b = (btn instanceof HTMLElement) ? btn : document.querySelector('[onclick*="_exportAllData"]');
+    _withBtnLoading(b, 'Exporting…', () => exportAllData());
+  }
 
   function _setMyTokens() {
     const v = parseInt(document.getElementById('debug-tokens')?.value||'0');
